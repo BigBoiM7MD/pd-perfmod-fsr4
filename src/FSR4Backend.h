@@ -14,8 +14,6 @@ public:
     bool isAvailable() const;
     bool isReady() const;
 
-    void* createUpscaleTexture(int displaySizeX, int displaySizeY, int format);
-
     void* createContext(int id, int upscaleMethod, int qualityLevel,
         int displaySizeX, int displaySizeY, bool isContentHDR,
         bool depthInverted, bool yAxisInverted, bool motionVectorsJittered,
