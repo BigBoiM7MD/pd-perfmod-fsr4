@@ -1,5 +1,6 @@
 #include "FSR4Backend.h"
 #include "Logging.h"
+#include "fsr4_overlay.h"
 #include "../include/PDPerfPlugin.h"
 
 #include <d3d12.h>
@@ -391,189 +392,12 @@ static FfxApiResource makeResource(ID3D12Resource* res, uint32_t state, uint32_t
 }
 
 // -----------------------------------------------------------------------
-// Verification watermark
-// Draws a small solid-color "FSR4" badge into the top-left of the output
-// texture via CopyTextureRegion (no shader, cannot disturb the FSR pipeline).
-// Its presence on screen proves the output texture is the one REFramework
-// presents. Disabled by compiling with -DFSR4_NO_WATERMARK.
+// Verification watermark + DIAG solid texture
+// The texture-creation logic (incl. the proven DEFAULT-buffer->texture fill)
+// now lives in fsr4_overlay.cpp / fsr4_overlay.h so it can be debugged and
+// re-verified in isolation. See that file for the full rationale. Disabled by
+// compiling with -DFSR4_NO_WATERMARK.
 // -----------------------------------------------------------------------
-#ifndef FSR4_NO_WATERMARK
-namespace {
-    static const uint8_t g_glyphs[4][5] = {
-        {0x7F, 0x40, 0x7C, 0x40, 0x40}, // F
-        {0x7C, 0x40, 0x7C, 0x04, 0x7C}, // S
-        {0x7E, 0x42, 0x7E, 0x4C, 0x42}, // R
-        {0x44, 0x4C, 0x7F, 0x04, 0x04}, // 4
-    };
-    static const int g_gx[4] = {4, 28, 52, 76};
-
-    // Forward declaration (defined below) so CreateSolidTexture can call it.
-    ID3D12Resource* CreateTexFromPixels(ID3D12Device* dev, ID3D12CommandQueue* queue,
-                                        int w, int h, DXGI_FORMAT targetFmt,
-                                        const std::vector<uint32_t>& px);
-
-    // A full-screen solid-color texture used by the PD_FSR4_DIAG_SOLID test.
-    // Same format as the output texture so CopyTextureRegion succeeds. Filled
-    // via CreateTexFromPixels (DEFAULT heap + UPLOAD staging + CopyTextureRegion),
-    // left in COPY_SOURCE so the per-frame solid->output copy is valid.
-    ID3D12Resource* CreateSolidTexture(ID3D12Device* dev, ID3D12CommandQueue* queue,
-                                       int w, int h, DXGI_FORMAT targetFmt, uint32_t color) {
-        std::vector<uint32_t> px((size_t)w * h, color);
-        return CreateTexFromPixels(dev, queue, w, h, targetFmt, px);
-    }
-
-    // Fill a GPU-local (DEFAULT heap) texture of `targetFmt` from CPU pixels.
-    // We deliberately avoid WriteToSubresource: it writes INTO the destination
-    // texture, so the texture must be in COPY_DEST state — but the per-frame
-    // copy (badge -> output) needs the badge in COPY_SOURCE, and on many drivers
-    // WriteToSubresource against a R10G10B10A2 DEFAULT texture returns
-    // E_INVALIDARG (hr=80070057) when the texture is in COPY_SOURCE. Instead we
-    // upload via a throwaway UPLOAD-heap staging texture (ROW_MAJOR, filled with
-    // Map) and CopyTextureRegion into the DEFAULT texture, then leave it in
-    // COPY_SOURCE so the per-frame badge->output copy is valid. This path is the
-    // same one the rest of the plugin already uses for the output copy and is
-    // universally supported.
-    ID3D12Resource* CreateTexFromPixels(ID3D12Device* dev, ID3D12CommandQueue* queue,
-                                        int w, int h, DXGI_FORMAT targetFmt,
-                                        const std::vector<uint32_t>& px) {
-        if (!dev || !queue) {
-            Logging::error("FSR4Backend: CreateTexFromPixels null dev/queue");
-            return nullptr;
-        }
-        D3D12_RESOURCE_DESC desc = {};
-        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        desc.Width = (UINT64)w; desc.Height = (UINT)h; desc.DepthOrArraySize = 1;
-        desc.MipLevels = 1; desc.Format = targetFmt;
-        desc.SampleDesc.Count = 1; desc.SampleDesc.Quality = 0;
-        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-        ID3D12Resource* tex = nullptr;
-        D3D12_HEAP_PROPERTIES hp = {};
-        hp.Type = D3D12_HEAP_TYPE_DEFAULT;
-        HRESULT hr = dev->CreateCommittedResource(
-            &hp, D3D12_HEAP_FLAG_NONE, &desc,
-            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&tex));
-        if (FAILED(hr)) {
-            Logging::error("FSR4Backend: CreateTexFromPixels CreateCommittedResource(dst) failed hr=%08x", hr);
-            return nullptr;
-        }
-
-        // Staging texture: UPLOAD heap, ROW_MAJOR (the only layout an upload
-        // heap accepts), filled via Map using the real 256-aligned footprint.
-        D3D12_RESOURCE_DESC sdesc = desc;
-        sdesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        ID3D12Resource* staging = nullptr;
-        D3D12_HEAP_PROPERTIES shp = {};
-        shp.Type = D3D12_HEAP_TYPE_UPLOAD;
-        hr = dev->CreateCommittedResource(
-            &shp, D3D12_HEAP_FLAG_NONE, &sdesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&staging));
-        if (FAILED(hr)) {
-            Logging::error("FSR4Backend: CreateTexFromPixels CreateCommittedResource(staging) failed hr=%08x", hr);
-            tex->Release();
-            return nullptr;
-        }
-
-        D3D12_PLACED_SUBRESOURCE_FOOTPRINT foot = {};
-        UINT rowBytes = 0; UINT64 totalBytes = 0;
-        dev->GetCopyableFootprints(&sdesc, 0, 1, 0, &foot, &rowBytes, &totalBytes, nullptr);
-        const UINT footRow = foot.Footprint.RowPitch;
-        void* mapped = nullptr;
-        D3D12_RANGE read = {0, 0};
-        hr = staging->Map(0, &read, &mapped);
-        if (FAILED(hr)) {
-            Logging::error("FSR4Backend: CreateTexFromPixels staging Map failed hr=%08x", hr);
-            staging->Release(); tex->Release();
-            return nullptr;
-        }
-        const UINT tightRow = (UINT)w * 4; // R10G10B10A2 = 4 bytes/px
-        for (int y = 0; y < h; ++y) {
-            memcpy((uint8_t*)mapped + (size_t)y * footRow,
-                   px.data() + (size_t)y * w, (size_t)tightRow);
-        }
-        staging->Unmap(0, nullptr);
-
-        // Copy staging -> DEFAULT on the direct queue, then transition the
-        // DEFAULT texture to COPY_SOURCE (badge is a copy source thereafter).
-        ID3D12CommandAllocator* alloc = nullptr;
-        ID3D12GraphicsCommandList* cl = nullptr;
-        if (FAILED(dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc))) ||
-            FAILED(dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr, IID_PPV_ARGS(&cl)))) {
-            Logging::error("FSR4Backend: CreateTexFromPixels create cmdlist failed");
-            if (alloc) alloc->Release();
-            staging->Release(); tex->Release();
-            return nullptr;
-        }
-        D3D12_TEXTURE_COPY_LOCATION dstLoc = {}, srcLoc = {};
-        dstLoc.Type = srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        dstLoc.SubresourceIndex = srcLoc.SubresourceIndex = 0;
-        dstLoc.pResource = tex; srcLoc.pResource = staging;
-        cl->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
-
-        D3D12_RESOURCE_BARRIER b = {};
-        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource = tex;
-        b.Transition.Subresource = 0;
-        b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-        b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        cl->ResourceBarrier(1, &b);
-        cl->Close();
-
-        ID3D12CommandList* lists[] = { cl };
-        queue->ExecuteCommandLists(1, lists);
-        // Wait for the copy to finish before the badge is used.
-        ID3D12Fence* fence = nullptr;
-        if (SUCCEEDED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)))) {
-            queue->Signal(fence, 1);
-            if (fence->GetCompletedValue() < 1) {
-                HANDLE ev = CreateEventA(nullptr, FALSE, FALSE, nullptr);
-                if (ev) {
-                    fence->SetEventOnCompletion(1, ev);
-                    WaitForSingleObject(ev, INFINITE);
-                    CloseHandle(ev);
-                }
-            }
-            fence->Release();
-        }
-        alloc->Release();
-        cl->Release();
-        staging->Release();
-        return tex;
-    }
-
-    ID3D12Resource* CreateWatermarkTexture(ID3D12Device* dev, ID3D12CommandQueue* queue,
-                                            int& outW, int& outH, DXGI_FORMAT targetFmt) {
-        // IMPORTANT: the destination is the output texture (R10G10B10A2_UNORM,
-        // fmt 24). CopyTextureRegion REQUIRES the source format to match the
-        // destination format exactly, otherwise it returns E_INVALIDARG and the
-        // badge silently never appears. So we always create the badge in the
-        // same format as the output texture.
-        const int w = 200, h = 40;
-        const uint32_t green = 0xC00FFC00; // ABGR opaque GREEN (R10G10B10A2)
-        const uint32_t black = 0xFF000000;
-
-        std::vector<uint32_t> px((size_t)w * h, black);
-        for (int g = 0; g < 4; ++g) {
-            for (int row = 0; row < 5; ++row) {
-                uint8_t bits = g_glyphs[g][row];
-                for (int col = 0; col < 7; ++col) {
-                    if (bits & (0x40 >> col)) {
-                        int x = g_gx[g] + col;
-                        int y = 8 + row;
-                        if (x >= 0 && x < w && y >= 0 && y < h)
-                            px[(size_t)y * w + x] = green;
-                    }
-                }
-            }
-        }
-
-        ID3D12Resource* tex = CreateTexFromPixels(dev, queue, w, h, targetFmt, px);
-        if (tex) { outW = w; outH = h; }
-        return tex;
-    }
-}
-#endif
 
 void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
                                   int displaySizeX, int displaySizeY,
@@ -796,7 +620,20 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
     dd.upscaleSize.width       = (uint32_t)ctx.displaySizeX;
     dd.upscaleSize.height      = (uint32_t)ctx.displaySizeY;
     dd.enableSharpening        = ctx.enableSharpening;
-    dd.sharpness               = sharpness;
+    // REFramework's "Sharpness Amount" slider is authored for FSR3 and ranges
+    // 0.0..5.0, defaulting to 0.0. The FFX upscale API (ffx_upscale.h) defines
+    // `sharpness` as 0..1 (1 = max RCAS). So we (a) clamp the slider's out-of-
+    // spec range into 0..1, and (b) if the user enabled the "Sharpness" toggle
+    // but left the amount at its 0.0 default, fall back to a sane strength so
+    // the toggle isn't a dead switch. This is the fix for "the sharpness slider
+    // does nothing" — it was being forwarded as 0.0 the whole time.
+    {
+        float s = sharpness;
+        if (s < 0.0f) s = 0.0f;
+        if (s > 1.0f) s = 1.0f;
+        if (ctx.enableSharpening && s <= 0.0f) s = 0.8f; // toggle on, amount at default 0 -> apply moderate RCAS
+        dd.sharpness = s;
+    }
     dd.frameTimeDelta          = 16.6f;
     dd.preExposure             = 1.0f;
     dd.reset                   = reset;
@@ -835,10 +672,11 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             }
             if (now - s_last > 2000) {
                 s_last = now;
-                Logging::info("FSR4Backend: ffxDispatch SUCCEEDED id=%d (out=%p fmt=%d %ux%u) reset=%d jitter=(%.4f,%.4f) mvScale=(%.4f,%.4f) sharp=%.3f",
+                Logging::info("FSR4Backend: ffxDispatch SUCCEEDED id=%d (out=%p fmt=%d %ux%u) reset=%d jitter=(%.4f,%.4f) mvScale=(%.4f,%.4f) rcas=%s sharp=%.3f",
                               id, effectiveDst, ctx.format, ctx.displaySizeX, ctx.displaySizeY,
                               (int)reset, jitterOffsetX, jitterOffsetY,
-                              ctx.motionScaleX, ctx.motionScaleY, sharpness);
+                              ctx.motionScaleX, ctx.motionScaleY,
+                              ctx.enableSharpening ? "ON" : "off", dd.sharpness);
             }
         }
 
@@ -872,7 +710,7 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         }
         if (on) {
             if (!ctx.solidTex) {
-                ctx.solidTex = CreateSolidTexture(m_impl->device, m_impl->commandQueue, ctx.displaySizeX,
+                ctx.solidTex = Fsr4Overlay::createSolidTexture(m_impl->device, m_impl->commandQueue, ctx.displaySizeX,
                                                   ctx.displaySizeY, (DXGI_FORMAT)ctx.format,
                                                   0xC00FFC00); // opaque GREEN in R10G10B10A2
                 Logging::info("FSR4Backend: DIAG_SOLID created solidTex=%p", (void*)ctx.solidTex);
@@ -931,14 +769,14 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
 #ifndef FSR4_NO_WATERMARK
         if (m_impl->device && effectiveDst) {
             if (!ctx.watermarkTex) {
-                ctx.watermarkTex = CreateWatermarkTexture(m_impl->device, m_impl->commandQueue,
+                ctx.watermarkTex = Fsr4Overlay::createWatermarkTexture(m_impl->device, m_impl->commandQueue,
                                                           ctx.watermarkW, ctx.watermarkH,
                                                           (DXGI_FORMAT)ctx.format);
                 if (ctx.watermarkTex) {
                     Logging::info("FSR4Backend: watermark texture created %dx%d (DEFAULT heap, COPY_SOURCE) — will be copied into output each frame",
                                   ctx.watermarkW, ctx.watermarkH);
                 } else {
-                    Logging::error("FSR4Backend: watermark texture creation FAILED (see CreateTexFromPixels error above)");
+                    Logging::error("FSR4Backend: watermark texture creation FAILED (see Fsr4Overlay::createWatermarkTexture log above)");
                 }
             }
             if (ctx.watermarkTex && ctx.watermarkW > 0 && ctx.watermarkH > 0) {

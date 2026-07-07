@@ -10,6 +10,9 @@
     <ClCompile Include="C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\FSR4Backend.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\fsr4_overlay.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\OriginalPlugin.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

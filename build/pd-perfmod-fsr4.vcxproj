@@ -376,6 +376,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\dllmain.cpp" />
     <ClCompile Include="C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\PDPerfPlugin.cpp" />
     <ClCompile Include="C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\FSR4Backend.cpp" />
+    <ClCompile Include="C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\fsr4_overlay.cpp" />
     <ClCompile Include="C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\OriginalPlugin.cpp" />
     <ClCompile Include="C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\Logging.cpp" />
   </ItemGroup>

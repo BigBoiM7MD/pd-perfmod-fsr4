@@ -1,5 +1,6 @@
 C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\dllmain.cpp;C:\Users\M7MD\Desktop\pd-perfmod-fsr4\build\pd-perfmod-fsr4.dir\Release\dllmain.obj
 C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\PDPerfPlugin.cpp;C:\Users\M7MD\Desktop\pd-perfmod-fsr4\build\pd-perfmod-fsr4.dir\Release\PDPerfPlugin.obj
 C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\FSR4Backend.cpp;C:\Users\M7MD\Desktop\pd-perfmod-fsr4\build\pd-perfmod-fsr4.dir\Release\FSR4Backend.obj
+C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\fsr4_overlay.cpp;C:\Users\M7MD\Desktop\pd-perfmod-fsr4\build\pd-perfmod-fsr4.dir\Release\fsr4_overlay.obj
 C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\OriginalPlugin.cpp;C:\Users\M7MD\Desktop\pd-perfmod-fsr4\build\pd-perfmod-fsr4.dir\Release\OriginalPlugin.obj
 C:\Users\M7MD\Desktop\pd-perfmod-fsr4\src\Logging.cpp;C:\Users\M7MD\Desktop\pd-perfmod-fsr4\build\pd-perfmod-fsr4.dir\Release\Logging.obj
