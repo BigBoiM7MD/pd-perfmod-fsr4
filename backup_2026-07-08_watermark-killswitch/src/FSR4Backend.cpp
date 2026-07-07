@@ -766,75 +766,54 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         // The output is currently in UAV state from the dispatch; transition it
         // to COPY_DEST, copy the badge, then back to UAV so REFramework's copier
         // sees it in the expected state.
-        // Runtime kill-switch: drop a file named "PD_FSR4_NO_WATERMARK" next to
-        // the DLL to suppress the badge with NO recompile (mirrors the
-        // PD_FSR4_DIAG_SOLID sentinel). Useful for A/B perf comparisons.
-        {
-            // Resolve the DLL dir locally (the DIAG_SOLID block's `dir` is out of
-            // scope here) so the kill-switch file is found next to the DLL.
-            std::wstring wdir = L".";
-            {
-                wchar_t dllPath[MAX_PATH] = {};
-                HMODULE hmod = (HMODULE)m_impl->hInstance;
-                if (!hmod) hmod = GetModuleHandleW(nullptr);
-                if (hmod) GetModuleFileNameW(hmod, dllPath, MAX_PATH);
-                std::wstring d = dllPath; auto pos = d.find_last_of(L"\\/");
-                wdir = (pos == std::wstring::npos) ? L"." : d.substr(0, pos);
-            }
-            bool wm_off = (GetFileAttributesW((wdir + L"\\PD_FSR4_NO_WATERMARK").c_str()) != INVALID_FILE_ATTRIBUTES);
-            static int s_lastWm = -1;
-            if (wm_off != (s_lastWm == 1)) {
-                s_lastWm = wm_off ? 1 : 0;
-                Logging::info("FSR4Backend: watermark badge %s (sentinel=%ls\\PD_FSR4_NO_WATERMARK)",
-                              wm_off ? "DISABLED via file" : "ENABLED", wdir.c_str());
-            }
-            if (!wm_off && m_impl->device && effectiveDst) {
-                if (!ctx.watermarkTex) {
-                    ctx.watermarkTex = Fsr4Overlay::createWatermarkTexture(m_impl->device, m_impl->commandQueue,
+#ifndef FSR4_NO_WATERMARK
+        if (m_impl->device && effectiveDst) {
+            if (!ctx.watermarkTex) {
+                ctx.watermarkTex = Fsr4Overlay::createWatermarkTexture(m_impl->device, m_impl->commandQueue,
                                                           ctx.watermarkW, ctx.watermarkH,
                                                           (DXGI_FORMAT)ctx.format);
-                    if (ctx.watermarkTex) {
-                        Logging::info("FSR4Backend: watermark texture created %dx%d (DEFAULT heap, COPY_SOURCE) — will be copied into output each frame",
-                                      ctx.watermarkW, ctx.watermarkH);
-                    } else {
-                        Logging::error("FSR4Backend: watermark texture creation FAILED (see Fsr4Overlay::createWatermarkTexture log above)");
-                    }
-                }
-                if (ctx.watermarkTex && ctx.watermarkW > 0 && ctx.watermarkH > 0) {
-                    ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
-                    D3D12_RESOURCE_BARRIER b = {};
-                    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                    b.Transition.pResource = (ID3D12Resource*)effectiveDst;
-                    b.Transition.Subresource = 0;
-                    b.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-                    b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
-                    cl->ResourceBarrier(1, &b);
-
-                    D3D12_TEXTURE_COPY_LOCATION dst = {};
-                    dst.pResource = (ID3D12Resource*)effectiveDst;
-                    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    dst.SubresourceIndex = 0;
-                    D3D12_TEXTURE_COPY_LOCATION src = {};
-                    src.pResource = ctx.watermarkTex;
-                    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    src.SubresourceIndex = 0;
-                    cl->CopyTextureRegion(&dst, 8, 8, 0, &src, nullptr);
-                    // CopyTextureRegion returns void; a format mismatch (the old bug)
-                    // would have surfaced as a device-removed error. Add a one-time
-                    // confirmation that the badge layout is valid.
-                    static bool s_badgeLogged = false;
-                    if (!s_badgeLogged) {
-                        s_badgeLogged = true;
-                        Logging::info("FSR4Backend: watermark copied (out fmt=%d badge fmt=%d) — badge should now be visible",
-                                      ctx.format, (int)ctx.watermarkTex->GetDesc().Format);
-                    }
-
-                    b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-                    b.Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-                    cl->ResourceBarrier(1, &b);
+                if (ctx.watermarkTex) {
+                    Logging::info("FSR4Backend: watermark texture created %dx%d (DEFAULT heap, COPY_SOURCE) — will be copied into output each frame",
+                                  ctx.watermarkW, ctx.watermarkH);
+                } else {
+                    Logging::error("FSR4Backend: watermark texture creation FAILED (see Fsr4Overlay::createWatermarkTexture log above)");
                 }
             }
+            if (ctx.watermarkTex && ctx.watermarkW > 0 && ctx.watermarkH > 0) {
+                ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
+                D3D12_RESOURCE_BARRIER b = {};
+                b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                b.Transition.pResource = (ID3D12Resource*)effectiveDst;
+                b.Transition.Subresource = 0;
+                b.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
+                cl->ResourceBarrier(1, &b);
+
+                D3D12_TEXTURE_COPY_LOCATION dst = {};
+                dst.pResource = (ID3D12Resource*)effectiveDst;
+                dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                dst.SubresourceIndex = 0;
+                D3D12_TEXTURE_COPY_LOCATION src = {};
+                src.pResource = ctx.watermarkTex;
+                src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                src.SubresourceIndex = 0;
+                cl->CopyTextureRegion(&dst, 8, 8, 0, &src, nullptr);
+                // CopyTextureRegion returns void; a format mismatch (the old bug)
+                // would have surfaced as a device-removed error. Add a one-time
+                // confirmation that the badge layout is valid.
+                static bool s_badgeLogged = false;
+                if (!s_badgeLogged) {
+                    s_badgeLogged = true;
+                    Logging::info("FSR4Backend: watermark copied (out fmt=%d badge fmt=%d) — badge should now be visible",
+                                  ctx.format, (int)ctx.watermarkTex->GetDesc().Format);
+                }
+
+                b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+                b.Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                cl->ResourceBarrier(1, &b);
+            }
         }
+#endif
 
     } catch (const std::exception& e) {
         Logging::error("FSR4Backend: ffxDispatch exception: %s", e.what());
