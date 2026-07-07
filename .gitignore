@@ -1,0 +1,12 @@
+build/
+*.user
+*.suo
+*.sdf
+*.log
+*.exp
+*.lib
+*.pdb
+*.ilk
+*.obj
+*.tlog
+*.lastbuildstate

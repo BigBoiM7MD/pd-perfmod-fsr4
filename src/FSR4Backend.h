@@ -37,6 +37,7 @@ public:
 
     int getJitterPhaseCount(int id) const;
     int getJitterOffset(int id, float* outX, float* outY, int index, int phaseCount) const;
+    void logJitterOnce(float x, float y, int index, int phaseCount) const;
 
     bool isMethodAvailable(int upscaleMethod) const;
     const char* getMethodName(int upscaleMethod) const;

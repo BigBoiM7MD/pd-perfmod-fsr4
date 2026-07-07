@@ -16,6 +16,9 @@ target_include_directories(${PROJECT_NAME} PUBLIC include)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE d3d12 dxgi)
 
+# Enable /EHa to catch both C++ and SEH exceptions
+target_compile_options(${PROJECT_NAME} PRIVATE /EHa)
+
 set_target_properties(${PROJECT_NAME} PROPERTIES
     OUTPUT_NAME "PDPerfPlugin"
     PREFIX ""

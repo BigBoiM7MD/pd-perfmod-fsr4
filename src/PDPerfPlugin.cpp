@@ -1,4 +1,4 @@
-#include "../include/PDPerfPlugin.h"
+﻿#include "../include/PDPerfPlugin.h"
 #include "FSR4Backend.h"
 #include "OriginalPlugin.h"
 #include "Logging.h"
@@ -7,6 +7,7 @@
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <unordered_map>
+#include <map>
 
 static FSR4Backend* g_fsr4 = nullptr;
 static OriginalPlugin* g_original = nullptr;
@@ -21,6 +22,9 @@ static std::unordered_map<int, ID3D12Resource*> g_fallbackTextures;
 static void logCallback(char* message, int iSize) {
     if (g_logDelegate) g_logDelegate(message, iSize);
 }
+
+// Debug: Log when InitUpscaler is called
+static bool s_initUpscalerCalled = false;
 
 static void initialize() {
     if (g_initialized) return;
@@ -119,12 +123,43 @@ void* __stdcall SimpleInit(int id, int upscaleMethod, int qualityLevel,
 }
 
 void* __stdcall InitUpscaler(InitParams* params) {
-    if (!params) return nullptr;
-    return SimpleInit(params->id, params->upscaleMethod, params->qualityLevel,
-                      params->displaySizeX, params->displaySizeY,
-                      params->isContentHDR, params->depthInverted, params->YAxisInverted,
-                      params->motionVetorsJittered, params->enableSharpening,
-                      params->enableAutoExposure, params->format);
+    if (!params) { 
+        Logging::error("InitUpscaler: NULL params");
+        return nullptr; 
+    }
+    
+    initialize();
+    Logging::info("InitUpscaler called: id=%d method=%d qual=%d %dx%d fmt=%d",
+                  params->id, params->upscaleMethod, params->qualityLevel,
+                  params->displaySizeX, params->displaySizeY, params->format);
+
+    if (!g_useOriginal && g_fsr4 && g_fsr4->isAvailable()) {
+        Logging::info("InitUpscaler: Using FSR4 backend");
+        return g_fsr4->createContext(params->id, params->upscaleMethod, params->qualityLevel,
+                                      params->displaySizeX, params->displaySizeY,
+                                      params->isContentHDR, params->depthInverted, 
+                                      params->YAxisInverted, params->motionVetorsJittered,
+                                      params->enableSharpening, params->enableAutoExposure,
+                                      params->format);
+    }
+
+    if (g_useOriginal && g_original && g_original->isLoaded()) {
+        Logging::info("InitUpscaler: Using original PDPerfPlugin");
+        return g_original->simpleInit(params->id, params->upscaleMethod, params->qualityLevel,
+                                       params->displaySizeX, params->displaySizeY,
+                                       params->isContentHDR, params->depthInverted, 
+                                       params->YAxisInverted, params->motionVetorsJittered,
+                                       params->enableSharpening, params->enableAutoExposure,
+                                       params->format);
+    }
+
+    Logging::error("InitUpscaler: No backend available!");
+    ID3D12Resource* fallback = createFallbackTexture(params->displaySizeX, params->displaySizeY, params->format);
+    if (fallback) {
+        g_fallbackTextures[params->id] = fallback;
+        Logging::info("Created fallback texture id=%d %dx%d", params->id, params->displaySizeX, params->displaySizeY);
+    }
+    return fallback;
 }
 
 void __stdcall SimpleEvaluate(int id, void* color, void* motionVector, void* depth, void* mask,
@@ -148,8 +183,15 @@ void __stdcall SimpleEvaluate(int id, void* color, void* motionVector, void* dep
 }
 
 void __stdcall EvaluateUpscaler(UpscaleParams* params) {
-    if (!params) return;
+    if (!params) { return; }
     initialize();
+
+    static bool s_loggedOnce = false;
+    if (!s_loggedOnce) {
+        Logging::info("EvaluateUpscaler: useOriginal=%d fsr4=%p ready=%d",
+                      (int)g_useOriginal, (void*)g_fsr4, g_fsr4 ? (int)g_fsr4->isReady() : -1);
+        s_loggedOnce = true;
+    }
 
     if (!g_useOriginal && g_fsr4 && g_fsr4->isReady()) {
         g_fsr4->evaluate(params);
