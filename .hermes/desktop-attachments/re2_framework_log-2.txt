@@ -1,0 +1,1793 @@
+[2026-07-07 21:36:13.713] [REFramework] [info] REFramework entry
+[2026-07-07 21:36:13.714] [REFramework] [info] Commit hash: 051da7695e2a00ec11a69eb3ff5065c31d71fe70
+[2026-07-07 21:36:13.714] [REFramework] [info] Tag: v1.5.9.1
+[2026-07-07 21:36:13.714] [REFramework] [info] Commits past tag: 688
+[2026-07-07 21:36:13.714] [REFramework] [info] Branch: pd-upscaler
+[2026-07-07 21:36:13.714] [REFramework] [info] Total commits: 2446
+[2026-07-07 21:36:13.714] [REFramework] [info] Build date: 05.07.2026
+[2026-07-07 21:36:13.714] [REFramework] [info] Build time: 18:13
+[2026-07-07 21:36:13.714] [REFramework] [info] Game name: re3
+[2026-07-07 21:36:13.714] [REFramework] [info] Game Module Addr: 7ff670260000
+[2026-07-07 21:36:13.714] [REFramework] [info] Game Module Size: a50f000
+[2026-07-07 21:36:13.714] [REFramework] [info] Current game path: E:\Games\Steam\steamapps\common\RE3
+[2026-07-07 21:36:13.714] [REFramework] [info] Preallocated buffer: 7ff670240f80
+[2026-07-07 21:36:13.714] [REFramework] [info] [IntegrityCheckBypass]: Fixing VirtualProtect...
+[2026-07-07 21:36:13.714] [REFramework] [info] [IntegrityCheckBypass]: NtProtectVirtualMemory already setup!
+[2026-07-07 21:36:13.714] [REFramework] [info] Attempting to hook 0x7ff9bda78200->0x7ff8af021c40
+[2026-07-07 21:36:13.714] [REFramework] [info] Hook init successful 0x7ff9bda78200->0x7ff8af021c40
+[2026-07-07 21:36:13.750] [REFramework] [info] [IntegrityCheckBypass]: VirtualProtect called
+[2026-07-07 21:36:13.750] [REFramework] [info] Hooked 7ff9bda78200->7ff8af021c40
+[2026-07-07 21:36:13.750] [REFramework] [info] [IntegrityCheckBypass]: Hooked VirtualProtect!
+[2026-07-07 21:36:13.750] [REFramework] [info] Getting OS version information...
+[2026-07-07 21:36:13.750] [REFramework] [info] OS Version Information
+[2026-07-07 21:36:13.750] [REFramework] [info] 	Major Version: 10
+[2026-07-07 21:36:13.750] [REFramework] [info] 	Minor Version: 0
+[2026-07-07 21:36:13.750] [REFramework] [info] 	Build Number: 26200
+[2026-07-07 21:36:13.750] [REFramework] [info] 	Platform Id: 2
+[2026-07-07 21:36:13.750] [REFramework] [info] Disclaimer: REFramework does not send this information to the developers or any other third party.
+[2026-07-07 21:36:13.750] [REFramework] [info] This information is only used to help with the development of REFramework.
+[2026-07-07 21:36:13.750] [REFramework] [info] Registering LdrRegisterDllNotification callback...
+[2026-07-07 21:36:13.750] [REFramework] [info] LdrRegisterDllNotification callback registered successfully
+[2026-07-07 21:36:13.750] [REFramework] [info] [PluginLoader] Module path E:\Games\Steam\steamapps\common\RE3\re3.exe
+[2026-07-07 21:36:13.750] [REFramework] [info] [PluginLoader] Actual dir: E:\Games\Steam\steamapps\common\RE3
+[2026-07-07 21:36:13.750] [REFramework] [info] [PluginLoader] Creating directories E:\Games\Steam\steamapps\common\RE3\reframework\plugins
+[2026-07-07 21:36:13.750] [REFramework] [info] [PluginLoader] Created directory for plugins: E:\Games\Steam\steamapps\common\RE3\reframework\plugins
+[2026-07-07 21:36:13.750] [REFramework] [info] [PluginLoader] Loading plugins...
+[2026-07-07 21:36:13.750] [REFramework] [info] [VM::update_pointers] Updating...
+[2026-07-07 21:36:13.791] [REFramework] [info] [VM::update_pointers] Context is null.
+[2026-07-07 21:36:13.791] [REFramework] [info] [VM::update_pointers] Updating...
+[2026-07-07 21:36:13.819] [REFramework] [info] [VM::update_pointers] Context is null.
+[2026-07-07 21:36:13.819] [REFramework] [info] [VM::update_pointers] Updating...
+[2026-07-07 21:36:13.847] [REFramework] [info] [VM::update_pointers] Context is null.
+[2026-07-07 21:36:13.847] [REFramework] [info] [VM::update_pointers] Updating...
+[2026-07-07 21:36:13.874] [REFramework] [info] [VM::update_pointers] Context is null.
+[2026-07-07 21:36:13.874] [REFramework] [info] [VM::update_pointers] Updating...
+[2026-07-07 21:36:13.898] [REFramework] [info] LdrRegisterDllNotification: Loaded: dxcore.dll
+[2026-07-07 21:36:13.899] [REFramework] [info] LdrRegisterDllNotification: Loaded: DEVOBJ.dll
+[2026-07-07 21:36:13.900] [REFramework] [info] LdrRegisterDllNotification: Loaded: WINTRUST.dll
+[2026-07-07 21:36:13.900] [REFramework] [info] LdrRegisterDllNotification: Loaded: MSASN1.dll
+[2026-07-07 21:36:13.902] [REFramework] [info] LdrRegisterDllNotification: Loaded: uxtheme.dll
+[2026-07-07 21:36:13.902] [REFramework] [info] [VM::update_pointers] Context is null.
+[2026-07-07 21:36:13.902] [REFramework] [info] [VM::update_pointers] Updating...
+[2026-07-07 21:36:13.902] [REFramework] [info] LdrRegisterDllNotification: Loaded: NSI.dll
+[2026-07-07 21:36:13.903] [REFramework] [info] LdrRegisterDllNotification: Loaded: dhcpcsvc6.DLL
+[2026-07-07 21:36:13.903] [REFramework] [info] LdrRegisterDllNotification: Loaded: dhcpcsvc.DLL
+[2026-07-07 21:36:13.904] [REFramework] [info] LdrRegisterDllNotification: Loaded: DSPARSE.dll
+[2026-07-07 21:36:13.904] [REFramework] [info] LdrRegisterDllNotification: Loaded: DNSAPI.dll
+[2026-07-07 21:36:13.929] [REFramework] [info] [VM::update_pointers] Context is null.
+[2026-07-07 21:36:13.929] [REFramework] [info] [VM::update_pointers] Updating...
+[2026-07-07 21:36:13.944] [REFramework] [info] LdrRegisterDllNotification: Loaded: MSCTF.dll
+[2026-07-07 21:36:13.947] [REFramework] [info] LdrRegisterDllNotification: Loaded: clbcatq.dll
+[2026-07-07 21:36:13.954] [REFramework] [info] LdrRegisterDllNotification: Loaded: textinputframework.dll
+[2026-07-07 21:36:13.957] [REFramework] [info] [VM::update_pointers] Context is null.
+[2026-07-07 21:36:13.957] [REFramework] [info] [VM::update_pointers] Updating...
+[2026-07-07 21:36:13.962] [REFramework] [info] LdrRegisterDllNotification: Loaded: wintypes.dll
+[2026-07-07 21:36:13.962] [REFramework] [info] LdrRegisterDllNotification: Loaded: CoreUIComponents.dll
+[2026-07-07 21:36:13.966] [REFramework] [info] LdrRegisterDllNotification: Loaded: Windows.Storage.dll
+[2026-07-07 21:36:13.967] [REFramework] [info] LdrRegisterDllNotification: Loaded: steam_api64.dll
+[2026-07-07 21:36:13.967] [REFramework] [info] LdrRegisterDllNotification: DLL loaded from game directory: E:\Games\Steam\steamapps\common\RE3\steam_api64.dll
+[2026-07-07 21:36:13.986] [REFramework] [info] [VM::update_pointers] Context is null.
+[2026-07-07 21:36:13.986] [REFramework] [info] [VM::update_pointers] Updating...
+[2026-07-07 21:36:14.002] [REFramework] [info] LdrRegisterDllNotification: Loaded: gameoverlayrenderer64.dll
+[2026-07-07 21:36:14.015] [REFramework] [info] [VM::update_pointers] Context is null.
+[2026-07-07 21:36:14.015] [REFramework] [info] [VM::update_pointers] Updating...
+[2026-07-07 21:36:14.051] [REFramework] [info] [VM::update_pointers] s_type_db_offset: 35d8
+[2026-07-07 21:36:14.051] [REFramework] [info] [VM::update_pointers] s_static_tbl_offset: 35a8
+[2026-07-07 21:36:14.051] [REFramework] [info] [VM::update_pointers] TDB Version: 70
+[2026-07-07 21:36:14.051] [REFramework] [info] [VM::update_pointers] TDB: 7ff677be6690
+[2026-07-07 21:36:14.051] [REFramework] [info] [VM::update_pointers] s_global_context: 7ff679c9c710
+[2026-07-07 21:36:14.051] [REFramework] [info] [VM::update_pointers] s_get_thread_context: 7ff672634cd0
+[2026-07-07 21:36:14.051] [REFramework] [info] [VM::update_pointers] method_inside_invoke_tbl: 7ff670334ed0
+[2026-07-07 21:36:14.065] [REFramework] [info] [VM::update_pointers] ptr_inside_invoke_tbl: 7ff6774092d8
+[2026-07-07 21:36:14.065] [REFramework] [info] [VM::update_pointers] s_invoke_tbl: 7ff6774092d0
+[2026-07-07 21:36:14.065] [REFramework] [info] VM initialized, waiting for renderer to initialize...
+[2026-07-07 21:36:14.071] [REFramework] [info] Renderer type found manually @ 7ff67826bf40
+[2026-07-07 21:36:14.196] [REFramework] [info] LdrRegisterDllNotification: Loaded: d3d12.dll
+[2026-07-07 21:36:14.204] [REFramework] [info] LdrRegisterDllNotification: Loaded: D3D12Core.dll
+[2026-07-07 21:36:14.207] [REFramework] [info] LdrRegisterDllNotification: Loaded: resourcepolicyclient.dll
+[2026-07-07 21:36:14.210] [REFramework] [info] LdrRegisterDllNotification: Loaded: directxdatabasehelper.dll
+[2026-07-07 21:36:14.229] [REFramework] [info] LdrRegisterDllNotification: Loaded: amdxc64.dll
+[2026-07-07 21:36:14.243] [REFramework] [info] Found renderer @ 1974c6ae5c0 (type: 7ff67826bf40), waiting for first frame...
+[2026-07-07 21:36:14.243] [REFramework] [info] Renderer has get_RenderFrame function
+[2026-07-07 21:36:14.251] [REFramework] [info] LdrRegisterDllNotification: Loaded: amdihk64.dll
+[2026-07-07 21:36:14.263] [REFramework] [info] LdrRegisterDllNotification: Loaded: amdxc64.dll
+[2026-07-07 21:36:14.280] [REFramework] [info] LdrRegisterDllNotification: Loaded: amdihk64.dll
+[2026-07-07 21:36:14.328] [REFramework] [info] LdrRegisterDllNotification: Loaded: USERENV.dll
+[2026-07-07 21:36:14.328] [REFramework] [info] LdrRegisterDllNotification: Loaded: D3DSCache.dll
+[2026-07-07 21:36:14.337] [REFramework] [info] LdrRegisterDllNotification: Loaded: dxilconv.dll
+[2026-07-07 21:36:14.350] [REFramework] [info] LdrRegisterDllNotification: Loaded: WTSAPI32.dll
+[2026-07-07 21:36:14.350] [REFramework] [info] LdrRegisterDllNotification: Loaded: atiadlxx.dll
+[2026-07-07 21:36:14.410] [REFramework] [info] LdrRegisterDllNotification: Loaded: pdh.dll
+[2026-07-07 21:36:14.974] [REFramework] [info] LdrRegisterDllNotification: Loaded: xinput1_4.dll
+[2026-07-07 21:36:14.979] [REFramework] [info] LdrRegisterDllNotification: Loaded: wbemcomn.dll
+[2026-07-07 21:36:14.979] [REFramework] [info] LdrRegisterDllNotification: Loaded: wbemprox.dll
+[2026-07-07 21:36:14.983] [REFramework] [info] LdrRegisterDllNotification: Loaded: wbemsvc.dll
+[2026-07-07 21:36:14.989] [REFramework] [info] LdrRegisterDllNotification: Loaded: fastprox.dll
+[2026-07-07 21:36:14.990] [REFramework] [info] LdrRegisterDllNotification: Loaded: amsi.dll
+[2026-07-07 21:36:14.991] [REFramework] [info] LdrRegisterDllNotification: Loaded: profapi.dll
+[2026-07-07 21:36:14.992] [REFramework] [info] LdrRegisterDllNotification: Loaded: MpOav.dll
+[2026-07-07 21:36:15.220] [REFramework] [info] LdrRegisterDllNotification: Loaded: Microsoft.Internal.WarpPal.dll
+[2026-07-07 21:36:15.220] [REFramework] [info] LdrRegisterDllNotification: Loaded: dcomp.dll
+[2026-07-07 21:36:15.220] [REFramework] [info] LdrRegisterDllNotification: Loaded: dwmapi.dll
+[2026-07-07 21:36:15.358] [REFramework] [info] Render frame: 1
+[2026-07-07 21:36:15.358] [REFramework] [info] Hooking D3D12
+[2026-07-07 21:36:15.359] [REFramework] [info] LdrRegisterDllNotification: Loaded: MMDevApi.dll
+[2026-07-07 21:36:15.359] [REFramework] [info] Creating dummy device
+[2026-07-07 21:36:15.362] [REFramework] [info] LdrRegisterDllNotification: Loaded: AUDIOSES.DLL
+[2026-07-07 21:36:15.362] [REFramework] [info] Dummy device: 197ee2323d0
+[2026-07-07 21:36:15.363] [REFramework] [info] Creating dummy DXGI factory
+[2026-07-07 21:36:15.365] [REFramework] [info] Creating dummy command queue
+[2026-07-07 21:36:15.365] [REFramework] [info] LdrRegisterDllNotification: Loaded: Windows.UI.dll
+[2026-07-07 21:36:15.368] [REFramework] [info] Creating dummy swapchain
+[2026-07-07 21:36:15.368] [REFramework] [info] Trying swapchain attempt 0
+[2026-07-07 21:36:15.376] [REFramework] [info] Created dummy swapchain on attempt 0
+[2026-07-07 21:36:15.376] [REFramework] [info] Querying dummy swapchain
+[2026-07-07 21:36:15.376] [REFramework] [error] Failed to get type info: unknown exception
+[2026-07-07 21:36:15.376] [REFramework] [info] Finding command queue offset
+[2026-07-07 21:36:15.376] [REFramework] [info] Found command queue offset: 140
+[2026-07-07 21:36:15.376] [REFramework] [info] Initializing hooks
+[2026-07-07 21:36:15.376] [REFramework] [info] [Streamline] Hooking Streamline
+[2026-07-07 21:36:15.376] [REFramework] [error] [Streamline] Failed to get sl.dlss_g.dll module handle
+[2026-07-07 21:36:15.376] [REFramework] [info] [PointerHook.cpp:25] [PointerHook] Hooking 7ff9b84501a8->7ff9b838dad0 to 7ff8aef8b6f0
+[2026-07-07 21:36:15.376] [REFramework] [info] [PointerHook.cpp:25] [PointerHook] Hooking 7ff9b8451200->7ff9b83af860 to 7ff8aef89480
+[2026-07-07 21:36:15.382] [REFramework] [info] Hooked DirectX 12
+[2026-07-07 21:36:15.551] [REFramework] [info] [WindowFilter] Encountered new window: RESIDENT EVIL 3
+[2026-07-07 21:36:15.862] [REFramework] [info] Attempting to initialize DirectX 12
+[2026-07-07 21:36:15.862] [REFramework] [info] [D3D12] Creating DXTK graphics memory...
+[2026-07-07 21:36:15.863] [REFramework] [info] [D3D12] Creating command allocator...
+[2026-07-07 21:36:15.863] [REFramework] [info] [D3D12] Creating RTV descriptor heap...
+[2026-07-07 21:36:15.864] [REFramework] [info] [D3D12] Creating SRV descriptor heap...
+[2026-07-07 21:36:15.864] [REFramework] [info] [D3D12] Creating render targets...
+[2026-07-07 21:36:15.864] [REFramework] [info] [D3D12] Swapchain buffer count: 3
+[2026-07-07 21:36:15.864] [REFramework] [info] [D3D12] Back buffer format is 24
+[2026-07-07 21:36:15.866] [REFramework] [info] [D3D12] Initializing ImGui...
+[2026-07-07 21:36:15.866] [REFramework] [info] Initializing WindowsMessageHook
+[2026-07-07 21:36:15.866] [REFramework] [info] [Thread.cpp:78] Locking loader lock...
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 3180
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 12376
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 16336
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 13944
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 17840
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 20280
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 6920
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 19464
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 22436
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 8944
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 18300
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 4140
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 2956
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 14640
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 21716
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 16256
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 8392
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 11864
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 6616
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 6864
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 5760
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 10948
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 14976
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 21828
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 17400
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 21668
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 3920
+[2026-07-07 21:36:15.903] [REFramework] [info] [Thread.cpp:42] Suspending 13260
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 22456
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 400
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 12948
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 21348
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 21968
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 1056
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 22140
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 8440
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 13276
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 1404
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 1620
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 17232
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 8292
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 21700
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 16664
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 14616
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 6900
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 17696
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 13736
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 3776
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 9052
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 21420
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:42] Suspending 21696
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:87] Unlocked loader lock.
+[2026-07-07 21:36:15.904] [REFramework] [info] Hooked Windows message handler
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 3180
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 12376
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 16336
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 13944
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 17840
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 20280
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 6920
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 19464
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 22436
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 8944
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 18300
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 4140
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 2956
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 14640
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 21716
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 16256
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 8392
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 11864
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 6616
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 6864
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 5760
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 10948
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 14976
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 21828
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 17400
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 21668
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 3920
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 13260
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 22456
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 400
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 12948
+[2026-07-07 21:36:15.904] [REFramework] [info] [Thread.cpp:62] Resuming 21348
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 21968
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 1056
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 22140
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 8440
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 13276
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 1404
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 1620
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 17232
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 8292
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 21700
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 16664
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 14616
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 6900
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 17696
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 13736
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 3776
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 9052
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 21420
+[2026-07-07 21:36:15.905] [REFramework] [info] [Thread.cpp:62] Resuming 21696
+[2026-07-07 21:36:15.905] [REFramework] [info] Entering DInputHook::hook().
+[2026-07-07 21:36:15.905] [REFramework] [info] Got DirectInput8Create 0x7ff8aef9bea0
+[2026-07-07 21:36:15.905] [REFramework] [info] Got IDirectInput 0x198538cc8d0
+[2026-07-07 21:36:15.905] [REFramework] [info] Got IDirectInputDevice 0x19809a8a730
+[2026-07-07 21:36:15.905] [REFramework] [info] Got IDirectInputDevice::GetDeviceState 7ff8b3dc2720
+[2026-07-07 21:36:15.905] [REFramework] [info] Attempting to hook 0x7ff8b3dc2720->0x7ff8aef8d870
+[2026-07-07 21:36:15.905] [REFramework] [info] Hooked 7ff8b3dc2720->7ff8aef8d870
+[2026-07-07 21:36:15.906] [REFramework] [info] DInputHook hooked successfully.
+[2026-07-07 21:36:15.906] [REFramework] [info] Starting game data initialization thread
+[2026-07-07 21:36:15.906] [REFramework] [info] REFramework initialized
+[2026-07-07 21:36:15.906] [REFramework] [info] Initializing REFramework SDK...
+[2026-07-07 21:36:15.906] [REFramework] [info] REFramework SDK: https://github.com/praydog/REFramework
+[2026-07-07 21:36:15.906] [REFramework] [info] RETypes initialization
+[2026-07-07 21:36:15.922] [REFramework] [info] Loaded default font: DEFAULT
+[2026-07-07 21:36:15.922] [REFramework] [info] Loading Segoe UI Emoji font from: C:\WINDOWS\Fonts\seguiemj.ttf
+[2026-07-07 21:36:15.926] [REFramework] [info] LdrRegisterDllNotification: Loaded: cryptsp.dll
+[2026-07-07 21:36:15.926] [REFramework] [info] LdrRegisterDllNotification: Loaded: D3DCOMPILER_47.dll
+[2026-07-07 21:36:15.931] [REFramework] [info] Initial ref: 7ff673157bc7
+[2026-07-07 21:36:15.931] [REFramework] [info] Initial TypeList: 7ff679f82260
+[2026-07-07 21:36:15.935] [REFramework] [info] Patching SetCursorPos
+[2026-07-07 21:36:15.956] [REFramework] [info] Potential ref: 7ff6733aa8a8
+[2026-07-07 21:36:15.956] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.956] [REFramework] [info] Potential ref: 7ff6733aa92e
+[2026-07-07 21:36:15.956] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351f862
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351f8f2
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351f982
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351fa12
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351faa2
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351fb32
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351fbc2
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351fc52
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351fce2
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351fd72
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351fe02
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67351fe92
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67352d9b2
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67352da42
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67352dad2
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67352db62
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67352dbf2
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential ref: 7ff67352dc82
+[2026-07-07 21:36:15.958] [REFramework] [info] Potential TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] Settled on ref: 7ff67352dc82
+[2026-07-07 21:36:15.958] [REFramework] [info] Settled on TypeList: 7ff679cd8618
+[2026-07-07 21:36:15.958] [REFramework] [info] TypeInfoNone
+[2026-07-07 21:36:15.958] [REFramework] [info] via.f16
+[2026-07-07 21:36:15.958] [REFramework] [info] via.vec2
+[2026-07-07 21:36:15.958] [REFramework] [info] via.vec3
+[2026-07-07 21:36:15.958] [REFramework] [info] via.vec4
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Quaternion
+[2026-07-07 21:36:15.958] [REFramework] [info] via.mat3
+[2026-07-07 21:36:15.958] [REFramework] [info] via.mat4
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Int2
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Int3
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Int4
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Uint2
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Uint3
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Uint4
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Float2
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Float3
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Float4
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Float3x3
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Float3x4
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Float4x3
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Float4x4
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Half2
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Half4
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Position
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Color
+[2026-07-07 21:36:15.958] [REFramework] [info] via.sfix
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Sfix2
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Sfix3
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Sfix4
+[2026-07-07 21:36:15.958] [REFramework] [info] via.os.TargetVersionInfo
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Point
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Size
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Rect
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Range
+[2026-07-07 21:36:15.958] [REFramework] [info] via.RangeI
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Line
+[2026-07-07 21:36:15.958] [REFramework] [info] via.LineSegment
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Segment
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Ray
+[2026-07-07 21:36:15.958] [REFramework] [info] via.RayY
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Sphere
+[2026-07-07 21:36:15.958] [REFramework] [info] via.AABB
+[2026-07-07 21:36:15.958] [REFramework] [info] via.OBB
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Plane
+[2026-07-07 21:36:15.958] [REFramework] [info] via.PlaneXZ
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Capsule
+[2026-07-07 21:36:15.958] [REFramework] [info] via.TaperedCapsule
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Triangle
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Cylinder
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Cone
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Torus
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Ellipsoid
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Frustum
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Rect3D
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Area
+[2026-07-07 21:36:15.958] [REFramework] [info] via.KeyFrame
+[2026-07-07 21:36:15.958] [REFramework] [info] via.collision.Contact
+[2026-07-07 21:36:15.958] [REFramework] [info] via.Guid
+[2026-07-07 21:36:15.958] [REFramework] [info] via.typeinfo.TypeInfo
+[2026-07-07 21:36:15.959] [REFramework] [info] via.Object
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.Attribute
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.IgnoreDataMember
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.VolatileDataMember
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.IgnoreDefaultValue
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.IgnoreInherit
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.ThreadSafe
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.Flags
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.BuiltIn
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.DataMember
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.UpdateOrder
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.DisplayOrder
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.DataCompress
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.Resource
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.Description
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.Category
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.DisplayName
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.TamperCheck
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.Header
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.Hide
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.Browsable
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.ReadOnly
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.DynamicReadOnly
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.DynamicBrowsable
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.DynamicDescription
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.DynamicDisplayName
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.ListGridEditorElement
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.DynamicCellColor
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.RequireJoint
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.RequireComponent
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.Keyable
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.NonKeyable
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.KeyValueHighlight
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.FloatKeyValueHighlight
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.DoubleKeyValueHighlight
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.IntKeyValueHighlight
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.UIntKeyValueHighlight
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.DynamicTrackHighlight
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.ExpandByDefault
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.ClipBoxKey
+[2026-07-07 21:36:15.959] [REFramework] [info] via.attribute.ClipTrackVisible
+[2026-07-07 21:36:15.975] [REFramework] [info] LdrRegisterDllNotification: Loaded: iZotope.dll
+[2026-07-07 21:36:15.975] [REFramework] [info] LdrRegisterDllNotification: DLL loaded from game directory: E:\Games\Steam\steamapps\common\RE3\iZotope.dll
+[2026-07-07 21:36:15.979] [REFramework] [info] LdrRegisterDllNotification: Loaded: MSSpatial.dll
+[2026-07-07 21:36:15.979] [REFramework] [info] LdrRegisterDllNotification: DLL loaded from game directory: E:\Games\Steam\steamapps\common\RE3\MSSpatial.dll
+[2026-07-07 21:36:15.984] [REFramework] [info] Finished RETypes initialization
+[2026-07-07 21:36:15.984] [REFramework] [info] REGlobals initialization
+[2026-07-07 21:36:15.984] [REFramework] [info] start: 7ff670260000
+[2026-07-07 21:36:15.984] [REFramework] [info] end: 7ff67a76e000
+[2026-07-07 21:36:15.988] [REFramework] [info] LdrRegisterDllNotification: Loaded: resourcepolicyclient.dll
+[2026-07-07 21:36:16.044] [REFramework] [info] Found 215 REGlobals
+[2026-07-07 21:36:16.044] [REFramework] [info] Found 0 getters
+[2026-07-07 21:36:16.044] [REFramework] [info] Finished REGlobals initialization
+[2026-07-07 21:36:16.044] [REFramework] [info] [REManagedObject] Finding add_ref function...
+[2026-07-07 21:36:16.048] [REFramework] [info] [REManagedObject] Found add_ref function at 7ff672617040
+[2026-07-07 21:36:16.048] [REFramework] [info] [REManagedObject] Finding release function...
+[2026-07-07 21:36:16.052] [REFramework] [info] [REManagedObject] Found release function at 7ff672617b60
+[2026-07-07 21:36:16.052] [REFramework] [info] [ResourceManager::create_resource] Finding function...
+[2026-07-07 21:36:16.059] [REFramework] [info] [ResourceManager::create_resource] Found string reference at 7ff673005b01
+[2026-07-07 21:36:16.060] [REFramework] [info] [ResourceManager::create_resource] Found function at 7ff673005b0c
+[2026-07-07 21:36:16.060] [REFramework] [info] [Resource::update_pointers] Finding function...
+[2026-07-07 21:36:16.060] [REFramework] [info] [Resource::update_pointers] Found add_ref function at 7ff67261e3d0
+[2026-07-07 21:36:16.060] [REFramework] [info] [Resource::update_pointers] Found release function at 7ff67261e580
+[2026-07-07 21:36:16.060] [REFramework] [info] [ResourceManager::create_resource] Found function at 7ff672620940
+[2026-07-07 21:36:16.062] [REFramework] [info] [Scan.cpp:1929] Adding 341729 entries for module 7ff670260000
+[2026-07-07 21:36:16.066] [REFramework] [info] [Scan.cpp:1946] Filtered and sorted entries down to 341729 for module 7ff670260000
+[2026-07-07 21:36:16.071] [REFramework] [info] [Scan.cpp:1463] Adding remaining 1761 entries to last bucket for module 7ff670260000
+[2026-07-07 21:36:16.071] [REFramework] [info] [Scan.cpp:2127]  Checking if 7ff672620c50 is a real function
+[2026-07-07 21:36:16.075] [REFramework] [info] [Scan.cpp:2788] Reference point for 7ff6726572a6: 7ff672656f30
+[2026-07-07 21:36:16.075] [REFramework] [info] [Scan.cpp:2788] Reference point for 7ff6726572a6: 7ff672656f30
+[2026-07-07 21:36:16.075] [REFramework] [info] [ResourceManager::create_userdata] Found function at 7ff672620c50
+[2026-07-07 21:36:16.076] [REFramework] [info] BackBufferRenderer::on_initialize()
+[2026-07-07 21:36:16.076] [REFramework] [info] REFrameworkConfig::on_initialize()
+[2026-07-07 21:36:16.076] [REFramework] [info] MethodDatabase::on_initialize()
+[2026-07-07 21:36:16.076] [REFramework] [info] [MethodDatabase] Building method address map...
+[2026-07-07 21:36:16.270] [REFramework] [info] [MethodDatabase] Built map with 122499 methods in 188ms (~17.3 MB RAM)
+[2026-07-07 21:36:16.270] [REFramework] [info] [MethodDatabase] Thunks found: 13351
+[2026-07-07 21:36:16.270] [REFramework] [info] Hooks::on_initialize()
+[2026-07-07 21:36:16.270] [REFramework] [info] [Hooks] Entering hook...
+[2026-07-07 21:36:16.270] [REFramework] [info] [Hooks] Attempting to application entries...
+[2026-07-07 21:36:16.270] [REFramework] [info] [Hooks] Found via.Application at 1974b712cb0
+[2026-07-07 21:36:16.270] [REFramework] [info] Searching for Application::functions offset...
+[2026-07-07 21:36:16.296] [REFramework] [info] Application::functions offset: 800
+[2026-07-07 21:36:16.296] [REFramework] [info] 1 InitializeLog entry: 1974b7134b0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeLog 7ff6702afc40->19868e10000
+[2026-07-07 21:36:16.296] [REFramework] [info] 2 InitializeGameCore entry: 1974b713580
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeGameCore 7ff6702afc40->19868e20000
+[2026-07-07 21:36:16.296] [REFramework] [info] 3 InitializeSteam entry: 1974b713650
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeSteam 7ff675e6cb90->19868e30000
+[2026-07-07 21:36:16.296] [REFramework] [info] 4 InitializeWeGame entry: 1974b713720
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeWeGame 7ff6702afc40->19868e40000
+[2026-07-07 21:36:16.296] [REFramework] [info] 5 InitializeStorage entry: 1974b7137f0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeStorage 7ff6732b1f20->19868e50000
+[2026-07-07 21:36:16.296] [REFramework] [info] 6 InitializeResourceManager entry: 1974b7138c0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeResourceManager 7ff675e6c9c0->19868e60000
+[2026-07-07 21:36:16.296] [REFramework] [info] 7 InitializeScene entry: 1974b713990
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeScene 7ff675e6ca40->19868e70000
+[2026-07-07 21:36:16.296] [REFramework] [info] 8 InitializeRemoteHost entry: 1974b713a60
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeRemoteHost 7ff6702afc40->19868e80000
+[2026-07-07 21:36:16.296] [REFramework] [info] 9 InitializeVM entry: 1974b713b30
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeVM 7ff675e6ce20->19868e90000
+[2026-07-07 21:36:16.296] [REFramework] [info] 10 InitializeSystemService entry: 1974b713c00
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeSystemService 7ff675e6cc10->19868ea0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 11 InitializeHardwareService entry: 1974b713cd0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeHardwareService 7ff675e6c810->19868eb0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 12 InitializePushNotificationService entry: 1974b713da0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializePushNotificationService 7ff675e6c8f0->19868ec0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 13 InitializeDialog entry: 1974b713e70
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeDialog 7ff675e6c7a0->19868ed0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 14 InitializeShareService entry: 1974b713f40
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeShareService 7ff675e6cb10->19868ee0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 15 InitializeUserService entry: 1974b714010
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeUserService 7ff675e6cda0->19868ef0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 16 InitializeUDS entry: 1974b7140e0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeUDS 7ff675e6cd20->19868f00000
+[2026-07-07 21:36:16.296] [REFramework] [info] 17 InitializeModalDialogService entry: 1974b7141b0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeModalDialogService 7ff675e6c880->19868f10000
+[2026-07-07 21:36:16.296] [REFramework] [info] 18 InitializeGlobalUserData entry: 1974b714280
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeGlobalUserData 7ff675f3a650->19868f20000
+[2026-07-07 21:36:16.296] [REFramework] [info] 19 InitializeXCloud entry: 1974b714350
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeXCloud 7ff6702afc40->19868f30000
+[2026-07-07 21:36:16.296] [REFramework] [info] 20 InitializeRebe entry: 1974b714420
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeRebe 7ff675f11ab0->19868f40000
+[2026-07-07 21:36:16.296] [REFramework] [info] 22 InitializeEffectMemorySettings entry: 1974b7144f0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeEffectMemorySettings 7ff675ec6b40->19868f50000
+[2026-07-07 21:36:16.296] [REFramework] [info] 23 InitializeRenderer entry: 1974b7145c0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeRenderer 7ff675f13460->19868f60000
+[2026-07-07 21:36:16.296] [REFramework] [info] 24 InitializeVR entry: 1974b714690
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeVR 7ff675f3aeb0->19868f70000
+[2026-07-07 21:36:16.296] [REFramework] [info] 26 InitializeHID entry: 1974b714760
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeHID 7ff675ee04c0->19868f80000
+[2026-07-07 21:36:16.296] [REFramework] [info] 27 InitializeEffect entry: 1974b714830
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeEffect 7ff675ec6570->19868f90000
+[2026-07-07 21:36:16.296] [REFramework] [info] 29 InitializeLandscape entry: 1974b714900
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeLandscape 7ff675e889d0->19868fa0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 31 InitializeSound entry: 1974b7149d0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeSound 7ff675f31450->19868fb0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 32 InitializeWwiselib entry: 1974b714aa0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeWwiselib 7ff6733375c0->19868fc0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 33 InitializeSimpleWwise entry: 1974b714b70
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeSimpleWwise 7ff6733a5f80->19868fd0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 34 InitializeWwise entry: 1974b714c40
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeWwise 7ff67338c1a0->19868fe0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 35 InitializeAudioRender entry: 1974b714d10
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeAudioRender 7ff6727e9010->19868ff0000
+[2026-07-07 21:36:16.296] [REFramework] [info] 36 InitializeGUI entry: 1974b714de0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeGUI 7ff675edd760->19869000000
+[2026-07-07 21:36:16.296] [REFramework] [info] 38 InitializeMotion entry: 1974b714eb0
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeMotion 7ff675ee2890->19869010000
+[2026-07-07 21:36:16.296] [REFramework] [info] 39 InitializeBehaviorTree entry: 1974b714f80
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeBehaviorTree 7ff675e8eff0->19869020000
+[2026-07-07 21:36:16.296] [REFramework] [info] 43 InitializeAreaMap entry: 1974b715050
+[2026-07-07 21:36:16.296] [REFramework] [info] Hooked InitializeAreaMap 7ff675e784d0->19869030000
+[2026-07-07 21:36:16.297] [REFramework] [info] 44 InitializeFSM entry: 1974b715120
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeFSM 7ff675ec9260->19869040000
+[2026-07-07 21:36:16.297] [REFramework] [info] 45 InitializeNavigation entry: 1974b7151f0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeNavigation 7ff675f02db0->19869050000
+[2026-07-07 21:36:16.297] [REFramework] [info] 46 InitializePointGraph entry: 1974b7152c0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializePointGraph 7ff675f10070->19869060000
+[2026-07-07 21:36:16.297] [REFramework] [info] 47 InitializeFluidFlock entry: 1974b715390
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeFluidFlock 7ff675e855d0->19869070000
+[2026-07-07 21:36:16.297] [REFramework] [info] 49 InitializeTimeline entry: 1974b715460
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeTimeline 7ff675f38ce0->19869080000
+[2026-07-07 21:36:16.297] [REFramework] [info] 50 InitializePhysics entry: 1974b715530
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializePhysics 7ff675f0b6a0->19869090000
+[2026-07-07 21:36:16.297] [REFramework] [info] 51 InitializeDynamics entry: 1974b715600
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeDynamics 7ff675e93480->198690a0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 54 InitializeNetwork entry: 1974b7156d0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeNetwork 7ff675f06f30->1986c020000
+[2026-07-07 21:36:16.297] [REFramework] [info] 55 InitializePuppet entry: 1974b7157a0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializePuppet 7ff675f10b50->1986c030000
+[2026-07-07 21:36:16.297] [REFramework] [info] 56 InitializeVoiceChat entry: 1974b715870
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeVoiceChat 7ff675f3a8a0->1986c040000
+[2026-07-07 21:36:16.297] [REFramework] [info] 58 InitializeStore entry: 1974b715940
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeStore 7ff675f317d0->1986c050000
+[2026-07-07 21:36:16.297] [REFramework] [info] 59 InitializeBrowser entry: 1974b715a10
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeBrowser 7ff675e92f30->1986c060000
+[2026-07-07 21:36:16.297] [REFramework] [info] 60 InitializeDevelopSystem entry: 1974b715ae0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeDevelopSystem 7ff675e6c790->1986c070000
+[2026-07-07 21:36:16.297] [REFramework] [info] 61 InitializeBehavior entry: 1974b715bb0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeBehavior 7ff675e6c710->1986c080000
+[2026-07-07 21:36:16.297] [REFramework] [info] 62 InitializeMovie entry: 1974b715c80
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeMovie 7ff675f01f60->1986c090000
+[2026-07-07 21:36:16.297] [REFramework] [info] 64 InitializeSkuService entry: 1974b715d50
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeSkuService 7ff675f3a6c0->1986c0a0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 65 InitializeTelemetry entry: 1974b715e20
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeTelemetry 7ff675f319f0->1986c0b0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 66 InitializeHansoft entry: 1974b715ef0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeHansoft 7ff675e880a0->1986c0c0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 67 InitializeNNFC entry: 1974b715fc0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeNNFC 7ff672e37490->1986c0d0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 69 InitializeThreadPool entry: 1974b716090
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked InitializeThreadPool 7ff675e6cc80->1986c0e0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 73 SetupJobScheduler entry: 1974b716160
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupJobScheduler 7ff675e6cf60->1986c0f0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 74 SetupResourceManager entry: 1974b716230
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupResourceManager 7ff675e6cf90->1986c100000
+[2026-07-07 21:36:16.297] [REFramework] [info] 75 SetupStorage entry: 1974b716300
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupStorage 7ff6732b22b0->1986c110000
+[2026-07-07 21:36:16.297] [REFramework] [info] 76 SetupGlobalUserData entry: 1974b7163d0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupGlobalUserData 7ff675f3a740->1986c120000
+[2026-07-07 21:36:16.297] [REFramework] [info] 77 SetupScene entry: 1974b7164a0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupScene 7ff675e6cfc0->1986c130000
+[2026-07-07 21:36:16.297] [REFramework] [info] 78 SetupDevelopSystem entry: 1974b716570
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupDevelopSystem 7ff6702afc40->1986c140000
+[2026-07-07 21:36:16.297] [REFramework] [info] 79 SetupUserService entry: 1974b716640
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupUserService 7ff675e6d010->1986c150000
+[2026-07-07 21:36:16.297] [REFramework] [info] 80 SetupSystemService entry: 1974b716710
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupSystemService 7ff675e6d000->1986c160000
+[2026-07-07 21:36:16.297] [REFramework] [info] 81 SetupHardwareService entry: 1974b7167e0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupHardwareService 7ff675e6cf50->1986c170000
+[2026-07-07 21:36:16.297] [REFramework] [info] 82 SetupPushNotificationService entry: 1974b7168b0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupPushNotificationService 7ff675e6cf80->1986c180000
+[2026-07-07 21:36:16.297] [REFramework] [info] 83 SetupShareService entry: 1974b716980
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupShareService 7ff675e6cff0->1986c190000
+[2026-07-07 21:36:16.297] [REFramework] [info] 84 SetupModalDialogService entry: 1974b716a50
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupModalDialogService 7ff675e6cf70->1986c1a0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 85 SetupVM entry: 1974b716b20
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupVM 7ff675e6d020->1986c1b0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 86 SetupHID entry: 1974b716bf0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupHID 7ff675ee0fb0->1986c1c0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 87 SetupRenderer entry: 1974b716cc0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupRenderer 7ff675f14d20->1986c1d0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 88 SetupEffect entry: 1974b716d90
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupEffect 7ff6702afc40->1986c1e0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 90 SetupLandscape entry: 1974b716e60
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupLandscape 7ff675e88cb0->1986c1f0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 92 SetupSound entry: 1974b716f30
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupSound 7ff6702afc40->1986c200000
+[2026-07-07 21:36:16.297] [REFramework] [info] 93 SetupWwiselib entry: 1974b717000
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupWwiselib 7ff6702dbeb0->1986c210000
+[2026-07-07 21:36:16.297] [REFramework] [info] 94 SetupSimpleWwise entry: 1974b7170d0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupSimpleWwise 7ff6733a60b0->1986c220000
+[2026-07-07 21:36:16.297] [REFramework] [info] 95 SetupWwise entry: 1974b7171a0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupWwise 7ff67338c3f0->1986c230000
+[2026-07-07 21:36:16.297] [REFramework] [info] 98 SetupNavigation entry: 1974b717270
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupNavigation 7ff6702afc40->1986c240000
+[2026-07-07 21:36:16.297] [REFramework] [info] 99 SetupPointGraph entry: 1974b717340
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupPointGraph 7ff675f100e0->1986c250000
+[2026-07-07 21:36:16.297] [REFramework] [info] 100 SetupPhysics entry: 1974b717410
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupPhysics 7ff675f0b720->1986c260000
+[2026-07-07 21:36:16.297] [REFramework] [info] 101 SetupDynamics entry: 1974b7174e0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupDynamics 7ff675e93570->1986c270000
+[2026-07-07 21:36:16.297] [REFramework] [info] 103 SetupMovie entry: 1974b7175b0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupMovie 7ff6702afc40->1986c280000
+[2026-07-07 21:36:16.297] [REFramework] [info] 105 SetupRebe entry: 1974b717680
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupRebe 7ff675f11b20->1986c290000
+[2026-07-07 21:36:16.297] [REFramework] [info] 106 SetupNetwork entry: 1974b717750
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupNetwork 7ff675f07230->1986c2a0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 107 SetupPuppet entry: 1974b717820
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupPuppet 7ff6702afc40->1986c2b0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 108 SetupStore entry: 1974b7178f0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupStore 7ff6702afc40->1986c2c0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 109 SetupBrowser entry: 1974b7179c0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupBrowser 7ff6702afc40->1986c2d0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 110 SetupVoiceChat entry: 1974b717a90
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupVoiceChat 7ff6702afc40->1986c2e0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 112 SetupSkuService entry: 1974b717b60
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupSkuService 7ff6702afc40->1986c2f0000
+[2026-07-07 21:36:16.297] [REFramework] [info] 113 SetupTelemetry entry: 1974b717c30
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupTelemetry 7ff6702afc40->1986c300000
+[2026-07-07 21:36:16.297] [REFramework] [info] 114 SetupHansoft entry: 1974b717d00
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupHansoft 7ff675e88110->1986c310000
+[2026-07-07 21:36:16.297] [REFramework] [info] 115 StartApp entry: 1974b717dd0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked StartApp 7ff675e6d030->1986c320000
+[2026-07-07 21:36:16.297] [REFramework] [info] 117 SetupAreaMap entry: 1974b717ea0
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupAreaMap 7ff675e78550->1986c330000
+[2026-07-07 21:36:16.297] [REFramework] [info] 118 SetupBehaviorTree entry: 1974b717f70
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupBehaviorTree 7ff675e8f190->1986c340000
+[2026-07-07 21:36:16.297] [REFramework] [info] 119 SetupFSM entry: 1974b718040
+[2026-07-07 21:36:16.297] [REFramework] [info] Hooked SetupFSM 7ff675ec9300->1986c350000
+[2026-07-07 21:36:16.298] [REFramework] [info] 120 SetupGUI entry: 1974b718110
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked SetupGUI 7ff675ede500->1986c360000
+[2026-07-07 21:36:16.298] [REFramework] [info] 123 SetupNNFC entry: 1974b7181e0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked SetupNNFC 7ff670662590->1986c370000
+[2026-07-07 21:36:16.298] [REFramework] [info] 125 StartStorage entry: 1974b7182b0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartStorage 7ff6732b2330->1986c380000
+[2026-07-07 21:36:16.298] [REFramework] [info] 126 StartResourceManager entry: 1974b718380
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartResourceManager 7ff675e6d040->1986c390000
+[2026-07-07 21:36:16.298] [REFramework] [info] 127 StartGlobalUserData entry: 1974b718450
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartGlobalUserData 7ff675f3a760->1986c3a0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 128 StartPhysics entry: 1974b718520
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartPhysics 7ff6707d5f50->1986c3b0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 129 StartDynamics entry: 1974b7185f0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartDynamics 7ff675e93590->1986c3c0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 130 StartGUI entry: 1974b7186c0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartGUI 7ff675ede5b0->1986c3d0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 131 StartTimeline entry: 1974b718790
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartTimeline 7ff675f38df0->1986c3e0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 133 StartAreaMap entry: 1974b718860
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartAreaMap 7ff675e78560->1986c3f0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 134 StartBehaviorTree entry: 1974b718930
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartBehaviorTree 7ff675e8f1a0->1986c400000
+[2026-07-07 21:36:16.298] [REFramework] [info] 135 StartFSM entry: 1974b718a00
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartFSM 7ff675ec9310->1986c410000
+[2026-07-07 21:36:16.298] [REFramework] [info] 136 StartSound entry: 1974b718ad0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartSound 7ff6702afc40->1986c420000
+[2026-07-07 21:36:16.298] [REFramework] [info] 137 StartWwise entry: 1974b718ba0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartWwise 7ff67338c420->1986c430000
+[2026-07-07 21:36:16.298] [REFramework] [info] 139 StartScene entry: 1974b718c70
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartScene 7ff675e6d070->1986c440000
+[2026-07-07 21:36:16.298] [REFramework] [info] 140 StartRebe entry: 1974b718d40
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartRebe 7ff6702afc40->1986c450000
+[2026-07-07 21:36:16.298] [REFramework] [info] 141 StartNetwork entry: 1974b718e10
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked StartNetwork 7ff675f07400->1986c460000
+[2026-07-07 21:36:16.298] [REFramework] [info] 143 UpdateDialog entry: 1974b718ee0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateDialog 7ff6704cf020->1986c470000
+[2026-07-07 21:36:16.298] [REFramework] [info] 144 UpdateRemoteHost entry: 1974b718fb0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateRemoteHost 7ff6702afc40->1986c480000
+[2026-07-07 21:36:16.298] [REFramework] [info] 145 UpdateStorage entry: 1974b719080
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateStorage 7ff6732b23b0->1986c490000
+[2026-07-07 21:36:16.298] [REFramework] [info] 146 UpdateScene entry: 1974b719150
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateScene 7ff675e6d180->1986c4a0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 147 UpdateDevelopSystem entry: 1974b719220
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateDevelopSystem 7ff6702afc40->1986c4b0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 148 UpdateWidget entry: 1974b7192f0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateWidget 7ff6702afc40->1986c4c0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 151 UpdateCapture entry: 1974b7193c0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateCapture 7ff6707e4f90->1986c4d0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 153 UpdateVR entry: 1974b719490
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateVR 7ff675f3b080->1986c4e0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 154 UpdateHID entry: 1974b719560
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateHID 7ff675ee1350->1986c4f0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 155 UpdateMotionFrame entry: 1974b719630
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateMotionFrame 7ff675ee2950->1986c500000
+[2026-07-07 21:36:16.298] [REFramework] [info] 156 BeginDynamics entry: 1974b719700
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked BeginDynamics 7ff675e930f0->1986c510000
+[2026-07-07 21:36:16.298] [REFramework] [info] 157 PreupdateGUI entry: 1974b7197d0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked PreupdateGUI 7ff675ede330->1986c520000
+[2026-07-07 21:36:16.298] [REFramework] [info] 159 UpdateAIMap entry: 1974b7198a0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateAIMap 7ff675f02e60->1986c530000
+[2026-07-07 21:36:16.298] [REFramework] [info] 160 CreatePreupdateGroupFSM entry: 1974b719970
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked CreatePreupdateGroupFSM 7ff675ec8f80->1986c540000
+[2026-07-07 21:36:16.298] [REFramework] [info] 161 CreatePreupdateGroupBehaviorTree entry: 1974b719a40
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked CreatePreupdateGroupBehaviorTree 7ff675e8ecd0->1986c550000
+[2026-07-07 21:36:16.298] [REFramework] [info] 162 UpdateGlobalUserData entry: 1974b719b10
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateGlobalUserData 7ff675f3a780->1986c560000
+[2026-07-07 21:36:16.298] [REFramework] [info] 163 UpdateUDS entry: 1974b719be0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateUDS 7ff675e6d230->1986c570000
+[2026-07-07 21:36:16.298] [REFramework] [info] 164 UpdateUserService entry: 1974b719cb0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateUserService 7ff675e6d240->1986c580000
+[2026-07-07 21:36:16.298] [REFramework] [info] 165 UpdateSystemService entry: 1974b719d80
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateSystemService 7ff675e6d220->1986c590000
+[2026-07-07 21:36:16.298] [REFramework] [info] 166 UpdateHardwareService entry: 1974b719e50
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateHardwareService 7ff675e6cf50->1986c5a0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 167 UpdatePushNotificationService entry: 1974b719f20
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdatePushNotificationService 7ff675e6cf80->1986c5b0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 168 UpdateShareService entry: 1974b719ff0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateShareService 7ff675e6d200->1986c5c0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 169 UpdateSteam entry: 1974b71a0c0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateSteam 7ff675e6d210->1986c5d0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 170 UpdateWeGame entry: 1974b71a190
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateWeGame 7ff6702afc40->1986c5e0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 172 UpdateXCloud entry: 1974b71a260
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateXCloud 7ff6702afc40->1986c5f0000
+[2026-07-07 21:36:16.298] [REFramework] [info] 173 UpdateRebe entry: 1974b71a330
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateRebe 7ff675f11bd0->1986c600000
+[2026-07-07 21:36:16.298] [REFramework] [info] 174 UpdateNNFC entry: 1974b71a400
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateNNFC 7ff670662c30->1986c610000
+[2026-07-07 21:36:16.298] [REFramework] [info] 175 BeginPhysics entry: 1974b71a4d0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked BeginPhysics 7ff675f0b390->1986c620000
+[2026-07-07 21:36:16.298] [REFramework] [info] 176 BeginUpdatePrimitive entry: 1974b71a5a0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked BeginUpdatePrimitive 7ff67074a4d0->1986c630000
+[2026-07-07 21:36:16.298] [REFramework] [info] 177 BeginUpdatePrimitiveGUI entry: 1974b71a670
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked BeginUpdatePrimitiveGUI 7ff675edcec0->1986c640000
+[2026-07-07 21:36:16.298] [REFramework] [info] 179 BeginPuppet entry: 1974b71a740
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked BeginPuppet 7ff675f108c0->1986c650000
+[2026-07-07 21:36:16.298] [REFramework] [info] 180 UpdateGUI entry: 1974b71a810
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked UpdateGUI 7ff675ede740->1986c660000
+[2026-07-07 21:36:16.298] [REFramework] [info] 181 PreupdateBehavior entry: 1974b71a8e0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked PreupdateBehavior 7ff675e6cf20->1986c670000
+[2026-07-07 21:36:16.298] [REFramework] [info] 182 PreupdateBehaviorTree entry: 1974b71a9b0
+[2026-07-07 21:36:16.298] [REFramework] [info] Hooked PreupdateBehaviorTree 7ff675e8f180->1986c680000
+[2026-07-07 21:36:16.298] [REFramework] [info] 183 PreupdateFSM entry: 1974b71aa80
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked PreupdateFSM 7ff675ec92f0->1986c690000
+[2026-07-07 21:36:16.299] [REFramework] [info] 184 PreupdateNetwork entry: 1974b71ab50
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked PreupdateNetwork 7ff675f071c0->1986c6a0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 185 PreupdateTimeline entry: 1974b71ac20
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked PreupdateTimeline 7ff675f38d70->1986c6b0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 186 PreupdateEffect entry: 1974b71acf0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked PreupdateEffect 7ff675ec6db0->1986c6c0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 187 UpdateBehavior entry: 1974b71adc0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateBehavior 7ff675e6d170->1986c6d0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 189 CreateUpdateGroupBehaviorTree entry: 1974b71ae90
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked CreateUpdateGroupBehaviorTree 7ff675e8ece0->1986c6e0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 190 CreateNavigationChain entry: 1974b71af60
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked CreateNavigationChain 7ff675f02e80->1986c6f0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 191 CreateUpdateGroupFSM entry: 1974b71b030
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked CreateUpdateGroupFSM 7ff675ec8fa0->1986c700000
+[2026-07-07 21:36:16.299] [REFramework] [info] 192 UpdateTimeline entry: 1974b71b100
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateTimeline 7ff675f38e10->1986c710000
+[2026-07-07 21:36:16.299] [REFramework] [info] 193 PreUpdateAreaMap entry: 1974b71b1d0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked PreUpdateAreaMap 7ff675e78540->1986c720000
+[2026-07-07 21:36:16.299] [REFramework] [info] 195 UpdateAreaMap entry: 1974b71b2a0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateAreaMap 7ff675e78570->1986c730000
+[2026-07-07 21:36:16.299] [REFramework] [info] 196 UpdateBehaviorTree entry: 1974b71b370
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateBehaviorTree 7ff675e8f1b0->1986c740000
+[2026-07-07 21:36:16.299] [REFramework] [info] 197 UpdateTimelineFsm2 entry: 1974b71b440
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateTimelineFsm2 7ff675f38e20->1986c750000
+[2026-07-07 21:36:16.299] [REFramework] [info] 199 UpdateFSM entry: 1974b71b510
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateFSM 7ff675ec9320->1986c760000
+[2026-07-07 21:36:16.299] [REFramework] [info] 200 UpdateMotion entry: 1974b71b5e0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateMotion 7ff675ee29c0->1986c770000
+[2026-07-07 21:36:16.299] [REFramework] [info] 202 EffectCollisionLimit entry: 1974b71b6b0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked EffectCollisionLimit 7ff6707c3b50->1986c780000
+[2026-07-07 21:36:16.299] [REFramework] [info] 203 UpdatePhysicsAfterUpdatePhase entry: 1974b71b780
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdatePhysicsAfterUpdatePhase 7ff675f0b750->1986c790000
+[2026-07-07 21:36:16.299] [REFramework] [info] 205 UpdateLandscape entry: 1974b71b850
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateLandscape 7ff675e88d30->1986c7a0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 207 UpdatePhysicsCharacterController entry: 1974b71b920
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdatePhysicsCharacterController 7ff675f0b760->1986c7b0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 209 UpdateDynamics entry: 1974b71b9f0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateDynamics 7ff675e935d0->1986c7c0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 210 UpdateNavigation entry: 1974b71bac0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateNavigation 7ff675f02e70->1986c7d0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 211 UpdatePointGraph entry: 1974b71bb90
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdatePointGraph 7ff675f10100->1986c7e0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 212 UpdateFluidFlock entry: 1974b71bc60
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateFluidFlock 7ff675e85650->1986c7f0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 213 UpdateConstraintsBegin entry: 1974b71bd30
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateConstraintsBegin 7ff675ee2910->1986c800000
+[2026-07-07 21:36:16.299] [REFramework] [info] 214 LateUpdateBehavior entry: 1974b71be00
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked LateUpdateBehavior 7ff675e6cf00->1986c810000
+[2026-07-07 21:36:16.299] [REFramework] [info] 215 EditUpdateBehavior entry: 1974b71bed0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked EditUpdateBehavior 7ff6702afc40->1986c820000
+[2026-07-07 21:36:16.299] [REFramework] [info] 218 BeginUpdateEffect entry: 1974b71bfa0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked BeginUpdateEffect 7ff675ec6110->1986c830000
+[2026-07-07 21:36:16.299] [REFramework] [info] 219 UpdateConstraintsEnd entry: 1974b71c070
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateConstraintsEnd 7ff675ee2930->1986c840000
+[2026-07-07 21:36:16.299] [REFramework] [info] 220 UpdatePhysicsAfterLateUpdatePhase entry: 1974b71c140
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdatePhysicsAfterLateUpdatePhase 7ff675f0b740->1986c850000
+[2026-07-07 21:36:16.299] [REFramework] [info] 221 PrerenderGUI entry: 1974b71c210
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked PrerenderGUI 7ff675ede020->1986c860000
+[2026-07-07 21:36:16.299] [REFramework] [info] 222 PrepareRendering entry: 1974b71c2e0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked PrepareRendering 7ff6707e4f90->1986c870000
+[2026-07-07 21:36:16.299] [REFramework] [info] 223 UpdateSound entry: 1974b71c3b0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateSound 7ff675f314d0->1986c880000
+[2026-07-07 21:36:16.299] [REFramework] [info] 224 UpdateWwiselib entry: 1974b71c480
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateWwiselib 7ff6733376e0->1986c890000
+[2026-07-07 21:36:16.299] [REFramework] [info] 225 UpdateSimpleWwise entry: 1974b71c550
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateSimpleWwise 7ff6703308e0->1986c8a0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 226 UpdateWwise entry: 1974b71c620
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateWwise 7ff67338c470->1986c8b0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 228 CreateSelectorGroupFSM entry: 1974b71c6f0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked CreateSelectorGroupFSM 7ff675ec8f90->1986c8c0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 229 UpdateNetwork entry: 1974b71c7c0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateNetwork 7ff675f07480->1986c8d0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 232 UpdateFSMSelector entry: 1974b71c890
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateFSMSelector 7ff675ec9330->1986c8e0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 233 UpdateBehaviorTreeSelector entry: 1974b71c960
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateBehaviorTreeSelector 7ff675e8f1c0->1986c8f0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 234 BeforeLockSceneRendering entry: 1974b71ca30
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked BeforeLockSceneRendering 7ff675f12b10->1986c900000
+[2026-07-07 21:36:16.299] [REFramework] [info] 236 UpdateJointExpression entry: 1974b71cb00
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateJointExpression 7ff675ee29a0->1986c910000
+[2026-07-07 21:36:16.299] [REFramework] [info] 238 UpdateEffect entry: 1974b71cbd0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateEffect 7ff675ec6e50->1986c920000
+[2026-07-07 21:36:16.299] [REFramework] [info] 239 EndUpdateEffect entry: 1974b71cca0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked EndUpdateEffect 7ff675ec6180->1986c930000
+[2026-07-07 21:36:16.299] [REFramework] [info] 240 UpdateWidgetDynamics entry: 1974b71cd70
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateWidgetDynamics 7ff6702afc40->1986c940000
+[2026-07-07 21:36:16.299] [REFramework] [info] 241 LockScene entry: 1974b71ce40
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked LockScene 7ff675e6cf10->1986c950000
+[2026-07-07 21:36:16.299] [REFramework] [info] 242 WaitRendering entry: 1974b71cf10
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked WaitRendering 7ff675f14e50->1986c960000
+[2026-07-07 21:36:16.299] [REFramework] [info] 243 EndDynamics entry: 1974b71cfe0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked EndDynamics 7ff675e93110->1986c970000
+[2026-07-07 21:36:16.299] [REFramework] [info] 244 EndPhysics entry: 1974b71d0b0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked EndPhysics 7ff675f0b3a0->1986c980000
+[2026-07-07 21:36:16.299] [REFramework] [info] 245 BeginRendering entry: 1974b71d180
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked BeginRendering 7ff675f12b20->1986c990000
+[2026-07-07 21:36:16.299] [REFramework] [info] 246 UpdatePuppet entry: 1974b71d250
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdatePuppet 7ff675f10be0->1986c9a0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 248 RenderDynamics entry: 1974b71d320
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked RenderDynamics 7ff675e93560->1986c9b0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 249 RenderGUI entry: 1974b71d3f0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked RenderGUI 7ff675ede460->1986c9c0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 251 RenderLandscape entry: 1974b71d4c0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked RenderLandscape 7ff675e88c70->1986c9d0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 254 UpdatePrimitiveGUI entry: 1974b71d590
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdatePrimitiveGUI 7ff675ede790->1986c9e0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 255 UpdatePrimitive entry: 1974b71d660
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdatePrimitive 7ff675f14e10->1986c9f0000
+[2026-07-07 21:36:16.299] [REFramework] [info] 257 EndUpdatePrimitive entry: 1974b71d730
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked EndUpdatePrimitive 7ff67074b8f0->1986ca00000
+[2026-07-07 21:36:16.299] [REFramework] [info] 258 EndUpdatePrimitiveGUI entry: 1974b71d800
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked EndUpdatePrimitiveGUI 7ff675edcee0->1986ca10000
+[2026-07-07 21:36:16.299] [REFramework] [info] 260 GUIPostPrimitiveRender entry: 1974b71d8d0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked GUIPostPrimitiveRender 7ff675eddff0->1986ca20000
+[2026-07-07 21:36:16.299] [REFramework] [info] 262 UpdateMovie entry: 1974b71d9a0
+[2026-07-07 21:36:16.299] [REFramework] [info] Hooked UpdateMovie 7ff675f01ff0->1986ca30000
+[2026-07-07 21:36:16.300] [REFramework] [info] 264 UpdateTelemetry entry: 1974b71da70
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked UpdateTelemetry 7ff675f31a70->1986ca40000
+[2026-07-07 21:36:16.300] [REFramework] [info] 265 UpdateHansoft entry: 1974b71db40
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked UpdateHansoft 7ff6702afc40->1986ca50000
+[2026-07-07 21:36:16.300] [REFramework] [info] 266 DrawWidget entry: 1974b71dc10
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked DrawWidget 7ff6702afc40->1986ca60000
+[2026-07-07 21:36:16.300] [REFramework] [info] 267 DevelopRenderer entry: 1974b71dce0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked DevelopRenderer 7ff6702afc40->1986ca70000
+[2026-07-07 21:36:16.300] [REFramework] [info] 268 EndRendering entry: 1974b71ddb0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked EndRendering 7ff675f12b80->1986ca80000
+[2026-07-07 21:36:16.300] [REFramework] [info] 269 UpdateStore entry: 1974b71de80
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked UpdateStore 7ff675f31860->1986ca90000
+[2026-07-07 21:36:16.300] [REFramework] [info] 270 UpdateBrowser entry: 1974b71df50
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked UpdateBrowser 7ff675e92ff0->1986caa0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 271 UpdateVoiceChat entry: 1974b71e020
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked UpdateVoiceChat 7ff675f3a980->1986cab0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 273 UnlockScene entry: 1974b71e0f0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked UnlockScene 7ff675e6d160->1986cac0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 274 UpdateVM entry: 1974b71e1c0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked UpdateVM 7ff675e6d250->1986cad0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 278 WaitForVblank entry: 1974b71e290
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked WaitForVblank 7ff675f14e40->1986cae0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 280 TerminateScene entry: 1974b71e360
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateScene 7ff675e6d100->1986caf0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 281 TerminateRemoteHost entry: 1974b71e430
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateRemoteHost 7ff6702afc40->1986cb00000
+[2026-07-07 21:36:16.300] [REFramework] [info] 282 TerminateHansoft entry: 1974b71e500
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateHansoft 7ff675e88120->1986cb10000
+[2026-07-07 21:36:16.300] [REFramework] [info] 283 TerminateTelemetry entry: 1974b71e5d0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateTelemetry 7ff675f31a60->1986cb20000
+[2026-07-07 21:36:16.300] [REFramework] [info] 285 TerminateMovie entry: 1974b71e6a0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateMovie 7ff675f01fe0->1986cb30000
+[2026-07-07 21:36:16.300] [REFramework] [info] 287 TerminateWwise entry: 1974b71e770
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateWwise 7ff67338c440->1986cb40000
+[2026-07-07 21:36:16.300] [REFramework] [info] 288 TerminateSimpleWwise entry: 1974b71e840
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateSimpleWwise 7ff67032f5e0->1986cb50000
+[2026-07-07 21:36:16.300] [REFramework] [info] 289 TerminateWwiselib entry: 1974b71e910
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateWwiselib 7ff6733376c0->1986cb60000
+[2026-07-07 21:36:16.300] [REFramework] [info] 290 TerminateSound entry: 1974b71e9e0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateSound 7ff6702afc40->1986cb70000
+[2026-07-07 21:36:16.300] [REFramework] [info] 291 TerminateVoiceChat entry: 1974b71eab0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateVoiceChat 7ff675f3a920->1986cb80000
+[2026-07-07 21:36:16.300] [REFramework] [info] 293 TerminatePuppet entry: 1974b71eb80
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminatePuppet 7ff6702afc40->1986cb90000
+[2026-07-07 21:36:16.300] [REFramework] [info] 294 TerminateNetwork entry: 1974b71ec50
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateNetwork 7ff675f07420->1986cba0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 295 TerminateStore entry: 1974b71ed20
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateStore 7ff6702afc40->1986cbb0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 296 TerminateBrowser entry: 1974b71edf0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateBrowser 7ff675e92fc0->1986cbc0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 298 TerminateGUI entry: 1974b71eec0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateGUI 7ff675ede640->1986cbd0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 299 TerminateAreaMap entry: 1974b71ef90
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateAreaMap 7ff6702afc40->1986cbe0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 301 TerminateFluidFlock entry: 1974b71f060
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateFluidFlock 7ff675e85640->1986cbf0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 303 TerminateBehaviorTree entry: 1974b71f130
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateBehaviorTree 7ff6702afc40->1986cc00000
+[2026-07-07 21:36:16.300] [REFramework] [info] 304 TerminateFSM entry: 1974b71f200
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateFSM 7ff6702afc40->1986cc10000
+[2026-07-07 21:36:16.300] [REFramework] [info] 305 TerminateNavigation entry: 1974b71f2d0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateNavigation 7ff675f02e50->1986cc20000
+[2026-07-07 21:36:16.300] [REFramework] [info] 306 TerminatePointGraph entry: 1974b71f3a0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminatePointGraph 7ff675f100f0->1986cc30000
+[2026-07-07 21:36:16.300] [REFramework] [info] 307 TerminateEffect entry: 1974b71f470
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateEffect 7ff675ec6dc0->1986cc40000
+[2026-07-07 21:36:16.300] [REFramework] [info] 309 TerminateLandscape entry: 1974b71f540
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateLandscape 7ff675e88cf0->1986cc50000
+[2026-07-07 21:36:16.300] [REFramework] [info] 311 TerminateRenderer entry: 1974b71f610
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateRenderer 7ff675f14d90->1986cc60000
+[2026-07-07 21:36:16.300] [REFramework] [info] 312 TerminateHID entry: 1974b71f6e0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateHID 7ff675ee1250->1986cc70000
+[2026-07-07 21:36:16.300] [REFramework] [info] 313 TerminateDynamics entry: 1974b71f7b0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateDynamics 7ff675e935b0->1986cc80000
+[2026-07-07 21:36:16.300] [REFramework] [info] 314 TerminatePhysics entry: 1974b71f880
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminatePhysics 7ff675f0b730->1986cc90000
+[2026-07-07 21:36:16.300] [REFramework] [info] 315 TerminateResourceManager entry: 1974b71f950
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateResourceManager 7ff675e6d0f0->1986cca0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 317 TerminateModalDialogService entry: 1974b71fa20
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateModalDialogService 7ff675e6d0e0->1986ccb0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 318 TerminateShareService entry: 1974b71faf0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateShareService 7ff675e6d120->1986ccc0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 319 TerminateGlobalUserData entry: 1974b71fbc0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateGlobalUserData 7ff675f3a770->1986ccd0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 320 TerminateStorage entry: 1974b71fc90
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateStorage 7ff6732b2340->1986cce0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 321 TerminateVM entry: 1974b71fd60
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateVM 7ff675e6d130->1986ccf0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 322 TerminateJobScheduler entry: 1974b71fe30
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked TerminateJobScheduler 7ff675e6d0d0->1986cd00000
+[2026-07-07 21:36:16.300] [REFramework] [info] 326 FinalizeThreadPool entry: 1974b71ff00
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeThreadPool 7ff675e6c530->1986cd10000
+[2026-07-07 21:36:16.300] [REFramework] [info] 327 FinalizeHansoft entry: 1974b71ffd0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeHansoft 7ff675e88030->1986cd20000
+[2026-07-07 21:36:16.300] [REFramework] [info] 328 FinalizeTelemetry entry: 1974b7200a0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeTelemetry 7ff675f31980->1986cd30000
+[2026-07-07 21:36:16.300] [REFramework] [info] 330 FinalizeMovie entry: 1974b720170
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeMovie 7ff675f01ef0->1986cd40000
+[2026-07-07 21:36:16.300] [REFramework] [info] 331 FinalizeBehavior entry: 1974b720240
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeBehavior 7ff675e6c0c0->1986cd50000
+[2026-07-07 21:36:16.300] [REFramework] [info] 332 FinalizeDevelopSystem entry: 1974b720310
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeDevelopSystem 7ff6702afc40->1986cd60000
+[2026-07-07 21:36:16.300] [REFramework] [info] 333 FinalizeTimeline entry: 1974b7203e0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeTimeline 7ff675f38c70->1986cd70000
+[2026-07-07 21:36:16.300] [REFramework] [info] 334 FinalizePuppet entry: 1974b7204b0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizePuppet 7ff675f10ad0->1986cd80000
+[2026-07-07 21:36:16.300] [REFramework] [info] 335 FinalizeNetwork entry: 1974b720580
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeNetwork 7ff675f06d40->1986cd90000
+[2026-07-07 21:36:16.300] [REFramework] [info] 336 FinalizeStore entry: 1974b720650
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeStore 7ff675f31760->1986cda0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 337 FinalizeBrowser entry: 1974b720720
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeBrowser 7ff675e92ed0->1986cdb0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 340 FinalizeBehaviorTree entry: 1974b7207f0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeBehaviorTree 7ff675e8ef80->1986cdc0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 341 FinalizeFSM entry: 1974b7208c0
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeFSM 7ff675ec91f0->1986cdd0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 342 FinalizeNavigation entry: 1974b720990
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizeNavigation 7ff675f02d40->1986cde0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 343 FinalizePointGraph entry: 1974b720a60
+[2026-07-07 21:36:16.300] [REFramework] [info] Hooked FinalizePointGraph 7ff675f10000->1986cdf0000
+[2026-07-07 21:36:16.300] [REFramework] [info] 344 FinalizeAreaMap entry: 1974b720b30
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeAreaMap 7ff675e78460->1986ce00000
+[2026-07-07 21:36:16.301] [REFramework] [info] 346 FinalizeFluidFlock entry: 1974b720c00
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeFluidFlock 7ff675e85570->1986ce10000
+[2026-07-07 21:36:16.301] [REFramework] [info] 348 FinalizeMotion entry: 1974b720cd0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeMotion 7ff675ee2830->1986ce20000
+[2026-07-07 21:36:16.301] [REFramework] [info] 349 FinalizeDynamics entry: 1974b720da0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeDynamics 7ff675e933c0->1986ce30000
+[2026-07-07 21:36:16.301] [REFramework] [info] 350 FinalizePhysics entry: 1974b720e70
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizePhysics 7ff675f0b620->1986ce40000
+[2026-07-07 21:36:16.301] [REFramework] [info] 354 FinalizeGUI entry: 1974b720f40
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeGUI 7ff675edd210->1986ce50000
+[2026-07-07 21:36:16.301] [REFramework] [info] 355 FinalizeSound entry: 1974b721010
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeSound 7ff675f313d0->1986ce60000
+[2026-07-07 21:36:16.301] [REFramework] [info] 356 FinalizeWwiselib entry: 1974b7210e0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeWwiselib 7ff673337520->1986ce70000
+[2026-07-07 21:36:16.301] [REFramework] [info] 357 FinalizeSimpleWwise entry: 1974b7211b0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeSimpleWwise 7ff6733a5ee0->1986ce80000
+[2026-07-07 21:36:16.301] [REFramework] [info] 358 FinalizeWwise entry: 1974b721280
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeWwise 7ff67338c0a0->1986ce90000
+[2026-07-07 21:36:16.301] [REFramework] [info] 359 FinalizeAudioRender entry: 1974b721350
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeAudioRender 7ff6727e8f20->1986cea0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 360 FinalizeEffect entry: 1974b721420
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeEffect 7ff675ec63e0->1986ceb0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 363 FinalizeLandscape entry: 1974b7214f0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeLandscape 7ff675e886c0->1986cec0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 365 FinalizeRenderer entry: 1974b7215c0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeRenderer 7ff675f12f00->1986ced0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 366 FinalizeHID entry: 1974b721690
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeHID 7ff675edfe40->1986cff0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 367 FinalizeVR entry: 1974b721760
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeVR 7ff675f3adb0->1986d000000
+[2026-07-07 21:36:16.301] [REFramework] [info] 369 FinalizeRebe entry: 1974b721830
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeRebe 7ff675f119f0->1986d010000
+[2026-07-07 21:36:16.301] [REFramework] [info] 370 FinalizeXCloud entry: 1974b721900
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeXCloud 7ff6702afc40->1986cee0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 371 FinalizeSteam entry: 1974b7219d0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeSteam 7ff675e6c450->1986cef0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 372 FinalizeWeGame entry: 1974b721aa0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeWeGame 7ff6702afc40->1986cf00000
+[2026-07-07 21:36:16.301] [REFramework] [info] 373 FinalizeNNFC entry: 1974b721b70
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeNNFC 7ff672e37410->1986cf10000
+[2026-07-07 21:36:16.301] [REFramework] [info] 374 FinalizeGlobalUserData entry: 1974b721c40
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeGlobalUserData 7ff675f3a570->1986cf20000
+[2026-07-07 21:36:16.301] [REFramework] [info] 375 FinalizeModalDialogService entry: 1974b721d10
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeModalDialogService 7ff675e6c200->1986cf30000
+[2026-07-07 21:36:16.301] [REFramework] [info] 376 FinalizeSkuService entry: 1974b721de0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeSkuService 7ff675f3a5d0->1986cf40000
+[2026-07-07 21:36:16.301] [REFramework] [info] 377 FinalizeUDS entry: 1974b721eb0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeUDS 7ff675e6c590->1986cf50000
+[2026-07-07 21:36:16.301] [REFramework] [info] 378 FinalizeUserService entry: 1974b721f80
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeUserService 7ff675e6c600->1986cf60000
+[2026-07-07 21:36:16.301] [REFramework] [info] 379 FinalizeShareService entry: 1974b722050
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeShareService 7ff675e6c3e0->1986cf70000
+[2026-07-07 21:36:16.301] [REFramework] [info] 380 FinalizeSystemService entry: 1974b722120
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeSystemService 7ff675e6c4c0->1986cf80000
+[2026-07-07 21:36:16.301] [REFramework] [info] 381 FinalizeHardwareService entry: 1974b7221f0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeHardwareService 7ff675e6c190->1986cf90000
+[2026-07-07 21:36:16.301] [REFramework] [info] 382 FinalizePushNotificationService entry: 1974b7222c0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizePushNotificationService 7ff675e6c260->1986cfa0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 383 FinalizeScene entry: 1974b722390
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeScene 7ff675e6c380->1986cfb0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 384 FinalizeVM entry: 1974b722460
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeVM 7ff675e6c670->1986cfc0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 385 FinalizeResourceManager entry: 1974b722530
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeResourceManager 7ff675e6c2d0->1986cfd0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 386 FinalizeRemoteHost entry: 1974b722600
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeRemoteHost 7ff6702afc40->1986cfe0000
+[2026-07-07 21:36:16.301] [REFramework] [info] 387 FinalizeStorage entry: 1974b7226d0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeStorage 7ff6732b1e40->1986d020000
+[2026-07-07 21:36:16.301] [REFramework] [info] 388 FinalizeDialog entry: 1974b7227a0
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeDialog 7ff675e6c120->1986d030000
+[2026-07-07 21:36:16.301] [REFramework] [info] 390 FinalizeGameCore entry: 1974b722870
+[2026-07-07 21:36:16.301] [REFramework] [info] Hooked FinalizeGameCore 7ff6702afc40->1986d040000
+[2026-07-07 21:36:16.302] [REFramework] [info] [Hooks] Entering hook...
+[2026-07-07 21:36:16.302] [REFramework] [info] via.render.layer.Overlay vtable: 5df40f8
+[2026-07-07 21:36:16.302] [REFramework] [info] via.render.layer.Overlay.Draw: 7ff672f338d0
+[2026-07-07 21:36:16.302] [REFramework] [info] Attempting to hook 0x7ff672f338d0->0x7ff8af00f800
+[2026-07-07 21:36:16.303] [REFramework] [info] Hooked 7ff672f338d0->7ff8af00f800
+[2026-07-07 21:36:16.303] [REFramework] [info] via.render.layer.Overlay.Update: 7ff672f34f20
+[2026-07-07 21:36:16.303] [REFramework] [info] Attempting to hook 0x7ff672f34f20->0x7ff8af015240
+[2026-07-07 21:36:16.304] [REFramework] [info] Hooked 7ff672f34f20->7ff8af015240
+[2026-07-07 21:36:16.304] [REFramework] [info] via.render.layer.PostEffect vtable: 5df3b30
+[2026-07-07 21:36:16.304] [REFramework] [info] via.render.layer.PostEffect.Draw: 7ff672f2d800
+[2026-07-07 21:36:16.304] [REFramework] [info] Attempting to hook 0x7ff672f2d800->0x7ff8af00f920
+[2026-07-07 21:36:16.304] [REFramework] [info] Hooked 7ff672f2d800->7ff8af00f920
+[2026-07-07 21:36:16.304] [REFramework] [info] via.render.layer.PostEffect.Update: 7ff672f2ebe0
+[2026-07-07 21:36:16.304] [REFramework] [info] Attempting to hook 0x7ff672f2ebe0->0x7ff8af015360
+[2026-07-07 21:36:16.304] [REFramework] [info] Hooked 7ff672f2ebe0->7ff8af015360
+[2026-07-07 21:36:16.304] [REFramework] [info] via.render.layer.Scene vtable: 5df06d8
+[2026-07-07 21:36:16.304] [REFramework] [info] via.render.layer.Scene.Draw: 7ff672f09bf0
+[2026-07-07 21:36:16.304] [REFramework] [info] Attempting to hook 0x7ff672f09bf0->0x7ff8af00fb60
+[2026-07-07 21:36:16.305] [REFramework] [info] Hooked 7ff672f09bf0->7ff8af00fb60
+[2026-07-07 21:36:16.305] [REFramework] [info] via.render.layer.Scene.Update: 7ff672f12270
+[2026-07-07 21:36:16.305] [REFramework] [info] Attempting to hook 0x7ff672f12270->0x7ff8af0155a0
+[2026-07-07 21:36:16.305] [REFramework] [info] Hooked 7ff672f12270->7ff8af0155a0
+[2026-07-07 21:36:16.305] [REFramework] [info] via.render.layer.Output vtable: 5e7b330
+[2026-07-07 21:36:16.305] [REFramework] [info] via.render.layer.Output.Draw: 7ff6732061f0
+[2026-07-07 21:36:16.305] [REFramework] [info] Attempting to hook 0x7ff6732061f0->0x7ff8af00f6e0
+[2026-07-07 21:36:16.305] [REFramework] [info] Hooked 7ff6732061f0->7ff8af00f6e0
+[2026-07-07 21:36:16.305] [REFramework] [info] via.render.layer.Output.Update: 7ff6732073e0
+[2026-07-07 21:36:16.305] [REFramework] [info] Attempting to hook 0x7ff6732073e0->0x7ff8af015120
+[2026-07-07 21:36:16.306] [REFramework] [info] Hooked 7ff6732073e0->7ff8af015120
+[2026-07-07 21:36:16.306] [REFramework] [info] via.render.layer.PrepareOutput vtable: 6db3dc0
+[2026-07-07 21:36:16.306] [REFramework] [info] via.render.layer.PrepareOutput.Draw: 7ff675f152c0
+[2026-07-07 21:36:16.306] [REFramework] [info] Attempting to hook 0x7ff675f152c0->0x7ff8af00fa40
+[2026-07-07 21:36:16.306] [REFramework] [info] Hooked 7ff675f152c0->7ff8af00fa40
+[2026-07-07 21:36:16.306] [REFramework] [info] via.render.layer.PrepareOutput.Update: 7ff6702afc40
+[2026-07-07 21:36:16.306] [REFramework] [info] Skipping update hook for via.render.layer.PrepareOutput, stub code detected
+[2026-07-07 21:36:16.306] [REFramework] [info] [Hooks] Entering hook...
+[2026-07-07 21:36:16.347] [REFramework] [info] UpdateTransform: 7ff672627330
+[2026-07-07 21:36:16.347] [REFramework] [info] Attempting to hook 0x7ff672627330->0x7ff8af0159b0
+[2026-07-07 21:36:16.348] [REFramework] [info] Hooked 7ff672627330->7ff8af0159b0
+[2026-07-07 21:36:16.348] [REFramework] [info] [Hooks] Entering hook...
+[2026-07-07 21:36:16.348] [REFramework] [info] camera.PlayerCameraController.updateCameraPosition: 7ff671aef2e0
+[2026-07-07 21:36:16.348] [REFramework] [info] Attempting to hook 0x7ff671aef2e0->0x7ff8af0158c0
+[2026-07-07 21:36:16.348] [REFramework] [info] Hooked 7ff671aef2e0->7ff8af0158c0
+[2026-07-07 21:36:16.348] [REFramework] [info] [Hooks] Entering hook...
+[2026-07-07 21:36:16.348] [REFramework] [info] camera.TwirlerCameraControllerRoot.update: 7ff6718cfa30
+[2026-07-07 21:36:16.348] [REFramework] [info] Attempting to hook 0x7ff6718cfa30->0x7ff8af0157d0
+[2026-07-07 21:36:16.349] [REFramework] [info] Hooked 7ff6718cfa30->7ff8af0157d0
+[2026-07-07 21:36:16.349] [REFramework] [info] [Hooks] Entering hook...
+[2026-07-07 21:36:16.349] [REFramework] [info] [Hooks] Attempting to hook GUI functions...
+[2026-07-07 21:36:16.349] [REFramework] [info] [Hooks] Scanning for first GUI draw call...
+[2026-07-07 21:36:16.353] [REFramework] [info] [Hooks] Found gui_draw_call at 7ff672a31226
+[2026-07-07 21:36:16.353] [REFramework] [info] [Hooks] gui_draw: 7ff6729dbc20
+[2026-07-07 21:36:16.353] [REFramework] [info] Attempting to hook 0x7ff6729dbc20->0x7ff8af010270
+[2026-07-07 21:36:16.354] [REFramework] [info] Hooked 7ff6729dbc20->7ff8af010270
+[2026-07-07 21:36:16.354] [REFramework] [info] [Hooks] Entering hook...
+[2026-07-07 21:36:16.354] [REFramework] [info] updateBeforeLockScene: 7ff6703151a0
+[2026-07-07 21:36:16.354] [REFramework] [info] Attempting to hook 0x7ff6703151a0->0x7ff8af0156c0
+[2026-07-07 21:36:16.354] [REFramework] [info] Hooked 7ff6703151a0->7ff8af0156c0
+[2026-07-07 21:36:16.354] [REFramework] [info] [Hooks] Entering hook...
+[2026-07-07 21:36:16.354] [REFramework] [info] [Hooks] Entering hook...
+[2026-07-07 21:36:16.354] [REFramework] [info] via.SceneView.get_Size: 7ff6705fa5c0
+[2026-07-07 21:36:16.355] [REFramework] [info] Attempting to hook 0x7ff6726404b0->0x7ff8af015ad0
+[2026-07-07 21:36:16.355] [REFramework] [info] Hooked 7ff6726404b0->7ff8af015ad0
+[2026-07-07 21:36:16.355] [REFramework] [info] [Hooks] Entering hook...
+[2026-07-07 21:36:16.355] [REFramework] [info] via.Camera.get_ProjectionMatrix: 7ff670346c00
+[2026-07-07 21:36:16.355] [REFramework] [info] Attempting to hook 0x7ff67263e9d0->0x7ff8af00f4e0
+[2026-07-07 21:36:16.356] [REFramework] [info] Hooked 7ff67263e9d0->7ff8af00f4e0
+[2026-07-07 21:36:16.356] [REFramework] [info] Hooked via.Camera.get_ProjectionMatrix
+[2026-07-07 21:36:16.356] [REFramework] [info] [Hooks] Entering hook...
+[2026-07-07 21:36:16.356] [REFramework] [info] via.Camera.get_ViewMatrix: 7ff6703463f0
+[2026-07-07 21:36:16.356] [REFramework] [info] Attempting to hook 0x7ff67263ef20->0x7ff8af00f5e0
+[2026-07-07 21:36:16.356] [REFramework] [info] Hooked 7ff67263ef20->7ff8af00f5e0
+[2026-07-07 21:36:16.356] [REFramework] [info] [Hooks] Finished hooking
+[2026-07-07 21:36:16.356] [REFramework] [info] LooseFileLoader::on_initialize()
+[2026-07-07 21:36:16.356] [REFramework] [info] VR::on_initialize()
+[2026-07-07 21:36:16.356] [REFramework] [info] TemporalUpscaler::on_initialize()
+[2026-07-07 21:36:16.357] [REFramework] [info] LdrRegisterDllNotification: Loaded: PDPerfPlugin.dll
+[2026-07-07 21:36:16.357] [REFramework] [info] LdrRegisterDllNotification: DLL loaded from game directory: E:\Games\Steam\steamapps\common\RE3\PDPerfPlugin.dll
+[2026-07-07 21:36:16.359] [REFramework] [info] [TemporalUpscaler] Upscale method 0 is available
+[2026-07-07 21:36:16.359] [REFramework] [info] [TemporalUpscaler] Upscale method 1 is available
+[2026-07-07 21:36:16.359] [REFramework] [info] [TemporalUpscaler] Upscale method 2 is available
+[2026-07-07 21:36:16.359] [REFramework] [info] FirstPerson::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] Camera::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] Graphics::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] ManualFlashlight::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] FreeCam::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] Scene::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] DeveloperTools::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] ChainViewer::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] GameObjectsDisplay::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] ObjectExplorer::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] APIProxy::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] PluginLoader::on_initialize()
+[2026-07-07 21:36:16.359] [REFramework] [info] ScriptRunner::on_initialize()
+[2026-07-07 21:36:16.360] [REFramework] [info] BackBufferRenderer::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] REFrameworkConfig::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] MethodDatabase::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] Hooks::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] LooseFileLoader::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] VR::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] TemporalUpscaler::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] FirstPerson::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] Camera::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] Graphics::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] ManualFlashlight::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] FreeCam::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] Scene::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] DeveloperTools::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] ChainViewer::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] GameObjectsDisplay::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] ObjectExplorer::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] APIProxy::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] PluginLoader::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] ScriptRunner::on_config_load()
+[2026-07-07 21:36:16.360] [REFramework] [info] [VMContext] Locating funcs
+[2026-07-07 21:36:16.369] [REFramework] [info] Context::UnhandledException 7ff672631a20
+[2026-07-07 21:36:16.369] [REFramework] [info] Context::LocalFrameGC 7ff6726308c0
+[2026-07-07 21:36:16.369] [REFramework] [info] Context::EndGlobalFrame 7ff67262fa00
+[2026-07-07 21:36:16.369] [REFramework] [info] Game data initialization thread finished
+[2026-07-07 21:36:16.427] [REFramework] [info] Running first frame D3D initialization of mods...
+[2026-07-07 21:36:16.427] [REFramework] [info] BackBufferRenderer::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [info] REFrameworkConfig::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [info] MethodDatabase::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [info] Hooks::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [info] LooseFileLoader::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [info] VR::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [info] TemporalUpscaler::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [info] FirstPerson::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [info] Camera::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [error] FreeCam: Failed to update pointers
+[2026-07-07 21:36:16.427] [REFramework] [error] FreeCam: Failed to update pointers
+[2026-07-07 21:36:16.427] [REFramework] [error] FreeCam: Failed to update pointers
+[2026-07-07 21:36:16.427] [REFramework] [info] Graphics::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [error] FreeCam: Failed to update pointers
+[2026-07-07 21:36:16.427] [REFramework] [error] FreeCam: Failed to update pointers
+[2026-07-07 21:36:16.427] [REFramework] [error] FreeCam: Failed to update pointers
+[2026-07-07 21:36:16.427] [REFramework] [info] ManualFlashlight::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [error] FreeCam: Failed to update pointers
+[2026-07-07 21:36:16.428] [REFramework] [info] FreeCam::on_config_load()
+[2026-07-07 21:36:16.428] [REFramework] [info] Scene::on_config_load()
+[2026-07-07 21:36:16.428] [REFramework] [info] DeveloperTools::on_config_load()
+[2026-07-07 21:36:16.427] [REFramework] [error] FreeCam: Failed to update pointers
+[2026-07-07 21:36:16.428] [REFramework] [info] ChainViewer::on_config_load()
+[2026-07-07 21:36:16.428] [REFramework] [info] GameObjectsDisplay::on_config_load()
+[2026-07-07 21:36:16.428] [REFramework] [info] ObjectExplorer::on_config_load()
+[2026-07-07 21:36:16.428] [REFramework] [info] APIProxy::on_config_load()
+[2026-07-07 21:36:16.428] [REFramework] [info] PluginLoader::on_config_load()
+[2026-07-07 21:36:16.428] [REFramework] [info] ScriptRunner::on_config_load()
+[2026-07-07 21:36:16.428] [REFramework] [info] BackBufferRenderer::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.429] [REFramework] [info] BackBufferRenderer D3D12 initialized
+[2026-07-07 21:36:16.429] [REFramework] [info] REFrameworkConfig::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.429] [REFramework] [info] MethodDatabase::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.429] [REFramework] [info] Hooks::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.429] [REFramework] [info] LooseFileLoader::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.429] [REFramework] [info] VR::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.430] [REFramework] [info] [VR] Could not load openvr_api.dll
+[2026-07-07 21:36:16.430] [REFramework] [info] OpenVR failed to load: Could not load openvr_api.dll
+[2026-07-07 21:36:16.430] [REFramework] [info] [VR] Initializing OpenXR
+[2026-07-07 21:36:16.430] [REFramework] [info] [VR] Could not load openxr_loader.dll
+[2026-07-07 21:36:16.430] [REFramework] [info] TemporalUpscaler::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.430] [REFramework] [info] FirstPerson::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.430] [REFramework] [info] Camera::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.430] [REFramework] [info] Graphics::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.430] [REFramework] [info] ManualFlashlight::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.431] [REFramework] [info] FreeCam::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.431] [REFramework] [info] Scene::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.431] [REFramework] [info] DeveloperTools::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.431] [REFramework] [info] ChainViewer::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.431] [REFramework] [info] GameObjectsDisplay::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.431] [REFramework] [info] ObjectExplorer::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.431] [REFramework] [info] APIProxy::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.431] [REFramework] [info] PluginLoader::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.431] [REFramework] [info] ScriptRunner::on_initialize_d3d_thread()
+[2026-07-07 21:36:16.431] [REFramework] [info] BackBufferRenderer::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] REFrameworkConfig::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] MethodDatabase::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] Hooks::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] LooseFileLoader::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] VR::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] TemporalUpscaler::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] FirstPerson::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] Camera::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] Graphics::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] ManualFlashlight::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] FreeCam::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] Scene::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] DeveloperTools::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] ChainViewer::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] GameObjectsDisplay::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] ObjectExplorer::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] APIProxy::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] PluginLoader::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] ScriptRunner::on_config_load()
+[2026-07-07 21:36:16.431] [REFramework] [info] Saving config re2_fw_config.txt
+[2026-07-07 21:36:16.432] [REFramework] [info] Saved config
+[2026-07-07 21:36:16.432] [REFramework] [info] Logging loaded modules...
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: E:\Games\Steam\steamapps\common\RE3\re3.exe
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\ntdll.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\KERNEL32.DLL
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\KERNELBASE.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\SHLWAPI.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\ucrtbase.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\IMM32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\win32u.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\MSVCP140.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\WS2_32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\CONCRT140.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\RPCRT4.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\WINMM.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\dxgi.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\CRYPT32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\d3d11.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\msvcp_win.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\SETUPAPI.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\msvcrt.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\USER32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\dbghelp.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\GDI32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\MFPlat.DLL
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: E:\Games\Steam\steamapps\common\RE3\DINPUT8.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\gdi32full.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\combase.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\OLEAUT32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\ADVAPI32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\sechost.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\SHELL32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\ole32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\XINPUT1_3.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\COMDLG32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\shcore.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\VCRUNTIME140.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\VCRUNTIME140_1.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\IPHLPAPI.DLL
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\WINHTTP.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\VERSION.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\PROPSYS.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\MFReadWrite.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\bcrypt.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: E:\Games\Steam\steamapps\common\RE3\amd_ags_x64.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\HID.DLL
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\powrprof.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\WinSxS\amd64_microsoft.windows.common-controls_6595b64144ccf1df_5.82.26100.8328_none_87eede957a2ccddd\COMCTL32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\cfgmgr32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\UMPDC.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\bcryptPrimitives.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\RTWorkQ.DLL
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\system32\dinput8.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\inputhost.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\CoreMessaging.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\CRYPTBASE.DLL
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\kernel.appcore.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\Program Files (x86)\Steam\steamclient64.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\imagehlp.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\PSAPI.DLL
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\Program Files (x86)\Steam\tier0_s64.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\MSWSOCK.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\Program Files (x86)\Steam\vstdlib_s64.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\Secur32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\SSPICLI.DLL
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\dxcore.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\DEVOBJ.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\WINTRUST.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\MSASN1.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\system32\uxtheme.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\NSI.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\dhcpcsvc6.DLL
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\dhcpcsvc.DLL
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\DNSAPI.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\DSPARSE.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\MSCTF.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\clbcatq.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\textinputframework.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\CoreUIComponents.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\wintypes.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\Windows.Storage.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: E:\Games\Steam\steamapps\common\RE3\steam_api64.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\Program Files (x86)\Steam\gameoverlayrenderer64.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\d3d12.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\D3D12Core.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\directxdatabasehelper.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\DriverStore\FileRepository\u0202082.inf_amd64_61e8e071c4b56ef4\B026218\amdxc64.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\DriverStore\FileRepository\u0202082.inf_amd64_61e8e071c4b56ef4\B026218\amdihk64.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\D3DSCache.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\USERENV.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\atiadlxx.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\WTSAPI32.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\pdh.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\xinput1_4.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\system32\wbem\wbemprox.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\wbemcomn.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\system32\wbem\wbemsvc.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\system32\wbem\fastprox.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\amsi.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\profapi.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\ProgramData\Microsoft\Windows Defender\Platform\4.18.26050.15-0\MpOav.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\dcomp.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\Microsoft.Internal.WarpPal.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\dwmapi.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\System32\MMDevApi.dll
+[2026-07-07 21:36:16.432] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\AUDIOSES.DLL
+[2026-07-07 21:36:16.433] [REFramework] [info] Loaded module: C:\Windows\System32\Windows.UI.dll
+[2026-07-07 21:36:16.433] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\D3DCOMPILER_47.dll
+[2026-07-07 21:36:16.433] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\cryptsp.dll
+[2026-07-07 21:36:16.433] [REFramework] [info] Loaded module: E:\Games\Steam\steamapps\common\RE3\iZotope.dll
+[2026-07-07 21:36:16.433] [REFramework] [info] Loaded module: E:\Games\Steam\steamapps\common\RE3\MSSpatial.dll
+[2026-07-07 21:36:16.433] [REFramework] [info] Loaded module: C:\WINDOWS\SYSTEM32\resourcepolicyclient.dll
+[2026-07-07 21:36:16.433] [REFramework] [info] Loaded module: E:\Games\Steam\steamapps\common\RE3\PDPerfPlugin.dll
+[2026-07-07 21:36:16.433] [REFramework] [info] [TemporalUpscaler] Initializing first frame...
+[2026-07-07 21:36:16.433] [REFramework] [info] LdrRegisterDllNotification: Loaded: amd_fidelityfx_loader_dx12.dll
+[2026-07-07 21:36:16.433] [REFramework] [info] LdrRegisterDllNotification: DLL loaded from game directory: E:\Games\Steam\steamapps\common\RE3\amd_fidelityfx_loader_dx12.dll
+[2026-07-07 21:36:16.434] [REFramework] [info] [TemporalUpscaler] Initializing upscale features...
+[2026-07-07 21:36:16.438] [REFramework] [info] LdrRegisterDllNotification: Loaded: amd_fidelityfx_upscaler_dx12.dll
+[2026-07-07 21:36:16.438] [REFramework] [info] LdrRegisterDllNotification: DLL loaded from game directory: E:\Games\Steam\steamapps\common\RE3\amd_fidelityfx_upscaler_dx12.dll
+[2026-07-07 21:36:16.444] [REFramework] [info] LdrRegisterDllNotification: Loaded: amdxcffx64.dll
+[2026-07-07 21:36:16.447] [REFramework] [info] LdrRegisterDllNotification: Loaded: rsaenh.dll
+[2026-07-07 21:36:16.466] [REFramework] [info] LdrRegisterDllNotification: Loaded: gpapi.dll
+[2026-07-07 21:36:16.470] [REFramework] [info] LdrRegisterDllNotification: Loaded: cryptnet.dll
+[2026-07-07 21:36:16.481] [REFramework] [info] LdrRegisterDllNotification: Loaded: WINNSI.DLL
+[2026-07-07 21:36:16.522] [REFramework] [info] LdrRegisterDllNotification: Loaded: amdcc.dll
+[2026-07-07 21:36:16.547] [REFramework] [info] [TemporalUpscaler] Upscaled texture size: 1920x1200
+[2026-07-07 21:36:16.547] [REFramework] [info] [TemporalUpscaler] Wanted render resolution: 1129x706
+[2026-07-07 21:36:16.547] [REFramework] [info] [TemporalUpscaler] Created upscaled texture(s)
+[2026-07-07 21:36:16.547] [REFramework] [info] Verifying SDK pointers...
+[2026-07-07 21:36:16.547] [REFramework] [info] Verifying...
+[2026-07-07 21:36:16.547] [REFramework] [info] Verifying...
+[2026-07-07 21:36:16.547] [REFramework] [info] Verifying...
+[2026-07-07 21:36:16.547] [REFramework] [info] Verifying...
+[2026-07-07 21:36:16.547] [REFramework] [info] Verifying...
+[2026-07-07 21:36:16.547] [REFramework] [info] Verifying...
+[2026-07-07 21:36:16.547] [REFramework] [info] Verifying...
+[2026-07-07 21:36:16.547] [REFramework] [info] [ScriptRunner] Scene and scene manager found. Loading scripts...
+[2026-07-07 21:36:16.547] [REFramework] [info] [ScriptRunner] Initializing Lua state for the first time...
+[2026-07-07 21:36:16.551] [REFramework] [info] [ScriptRunner] Module path E:\Games\Steam\steamapps\common\RE3\re3.exe
+[2026-07-07 21:36:16.551] [REFramework] [info] [ScriptRunner] Creating directories E:\Games\Steam\steamapps\common\RE3\reframework\autorun
+[2026-07-07 21:36:16.551] [REFramework] [info] [ScriptRunner] Loading scripts...
+[2026-07-07 21:36:16.551] [REFramework] [info] [ScriptRunner] Lua state initialized.
+[2026-07-07 21:36:16.553] [REFramework] [info] D3D12 resize target called
+[2026-07-07 21:36:16.553] [REFramework] [info]  Parameters: new_target_parameters 1902bff938
+[2026-07-07 21:36:16.554] [REFramework] [info] LdrRegisterDllNotification: Loaded: dbgmodel.dll
+[2026-07-07 21:36:16.554] [REFramework] [info] LdrRegisterDllNotification: Loaded: XmlLite.dll
+[2026-07-07 21:36:16.554] [REFramework] [info] LdrRegisterDllNotification: Loaded: dbgeng.dll
+[2026-07-07 21:36:16.606] [REFramework] [info] [PrepareOutput] Skipping offset 40 because get_typeinfo_fn does not look like a mov rax
+[2026-07-07 21:36:16.606] [REFramework] [info] [PrepareOutput] Checked offset 88, type name: via.render.ShaderResourceView
+[2026-07-07 21:36:16.606] [REFramework] [info] [PrepareOutput] Checked offset 90, type name: via.render.TextureResource
+[2026-07-07 21:36:16.606] [REFramework] [info] [PrepareOutput] Checked offset a0, type name: via.render.PipelineState
+[2026-07-07 21:36:16.606] [REFramework] [info] [PrepareOutput] Checked offset a8, type name: via.render.PipelineState
+[2026-07-07 21:36:16.606] [REFramework] [info] [PrepareOutput] Checked offset b0, type name: via.render.PipelineState
+[2026-07-07 21:36:16.606] [REFramework] [info] [PrepareOutput] Checked offset b8, type name: via.render.PipelineState
+[2026-07-07 21:36:16.606] [REFramework] [info] [PrepareOutput] Checked offset c0, type name: via.render.ShaderResource
+[2026-07-07 21:36:16.606] [REFramework] [info] [PrepareOutput] Checked offset c8, type name: via.render.PipelineResource
+[2026-07-07 21:36:16.606] [REFramework] [info] [PrepareOutput] Found output state offset: f8
+[2026-07-07 21:36:16.606] [REFramework] [info] [RenderResource] Scanning for release function...
+[2026-07-07 21:36:16.606] [REFramework] [info] [RenderResource] Found reset method at 7ff6708501b0
+[2026-07-07 21:36:16.606] [REFramework] [info] [RenderResource] Found call to release function at 7ff6708501ca
+[2026-07-07 21:36:16.606] [REFramework] [info] [RenderResource] Found release function at 7ff672efdcb0
+[2026-07-07 21:36:16.606] [REFramework] [info] [Renderer] Finding root_layer_offset
+[2026-07-07 21:36:16.606] [REFramework] [info] [Renderer] Real getOutputLayer: 7ff670c38870
+[2026-07-07 21:36:16.606] [REFramework] [info] [Renderer] root_layer_offset: 2d70
+[2026-07-07 21:36:16.606] [REFramework] [info] [Renderer] Finding RenderLayer::layers
+[2026-07-07 21:36:16.606] [REFramework] [info] [Renderer] RenderLayer::layers: 48
+[2026-07-07 21:36:16.738] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x611A
+re3!AK::WriteBytesMem::Clear+0x644255
+re3!AK::WriteBytesMem::Clear+0x640696
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:16.738] [REFramework] [info] Reset!
+[2026-07-07 21:36:16.741] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:16.749] [REFramework] [info] D3D12 resize buffers called
+[2026-07-07 21:36:16.749] [REFramework] [info]  Parameters: buffer_count 3 width 3440 height 1440 new_format 24 swap_chain_flags 2114
+[2026-07-07 21:36:16.749] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x56B7
+re3!AK::WriteBytesMem::Clear+0x6442E6
+re3!AK::WriteBytesMem::Clear+0x640696
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:16.749] [REFramework] [info] Reset!
+[2026-07-07 21:36:16.749] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:16.759] [REFramework] [info] D3D12 resize target called
+[2026-07-07 21:36:16.759] [REFramework] [info]  Parameters: new_target_parameters 1902bff8f8
+[2026-07-07 21:36:16.759] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x611A
+re3!AK::WriteBytesMem::Clear+0x644255
+re3!AK::WriteBytesMem::Clear+0x645091
+re3!AK::WriteBytesMem::Clear+0x64070D
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:16.759] [REFramework] [info] Reset!
+[2026-07-07 21:36:16.759] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:16.759] [REFramework] [info] D3D12 resize buffers called
+[2026-07-07 21:36:16.759] [REFramework] [info]  Parameters: buffer_count 3 width 3440 height 1440 new_format 24 swap_chain_flags 2114
+[2026-07-07 21:36:16.759] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x56B7
+re3!AK::WriteBytesMem::Clear+0x6442E6
+re3!AK::WriteBytesMem::Clear+0x645091
+re3!AK::WriteBytesMem::Clear+0x64070D
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:16.759] [REFramework] [info] Reset!
+[2026-07-07 21:36:16.759] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:16.895] [REFramework] [info] D3D12 resize target called
+[2026-07-07 21:36:16.895] [REFramework] [info]  Parameters: new_target_parameters 1902bff8f8
+[2026-07-07 21:36:16.895] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x611A
+re3!AK::WriteBytesMem::Clear+0x644255
+re3!AK::WriteBytesMem::Clear+0x6450C2
+re3!AK::WriteBytesMem::Clear+0x64070D
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:16.895] [REFramework] [info] Reset!
+[2026-07-07 21:36:16.895] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:17.115] [REFramework] [info] D3D12 resize buffers called
+[2026-07-07 21:36:17.115] [REFramework] [info]  Parameters: buffer_count 3 width 3440 height 1440 new_format 24 swap_chain_flags 2114
+[2026-07-07 21:36:17.115] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x56B7
+re3!AK::WriteBytesMem::Clear+0x6442E6
+re3!AK::WriteBytesMem::Clear+0x6450C2
+re3!AK::WriteBytesMem::Clear+0x64070D
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:17.115] [REFramework] [info] Reset!
+[2026-07-07 21:36:17.115] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:17.117] [REFramework] [info] LdrRegisterDllNotification: Loaded: ntmarta.dll
+[2026-07-07 21:36:17.122] [REFramework] [info] Attempting to initialize DirectX 12
+[2026-07-07 21:36:17.123] [REFramework] [info] [D3D12] Creating DXTK graphics memory...
+[2026-07-07 21:36:17.123] [REFramework] [info] [D3D12] Creating command allocator...
+[2026-07-07 21:36:17.124] [REFramework] [info] [D3D12] Creating RTV descriptor heap...
+[2026-07-07 21:36:17.124] [REFramework] [info] [D3D12] Creating SRV descriptor heap...
+[2026-07-07 21:36:17.124] [REFramework] [info] [D3D12] Creating render targets...
+[2026-07-07 21:36:17.124] [REFramework] [info] [D3D12] Swapchain buffer count: 3
+[2026-07-07 21:36:17.124] [REFramework] [info] [D3D12] Back buffer format is 24
+[2026-07-07 21:36:17.127] [REFramework] [info] [D3D12] Initializing ImGui...
+[2026-07-07 21:36:17.127] [REFramework] [info] REFramework initialized
+[2026-07-07 21:36:17.135] [REFramework] [info] D3D12 resize buffers called
+[2026-07-07 21:36:17.135] [REFramework] [info]  Parameters: buffer_count 3 width 3440 height 1440 new_format 24 swap_chain_flags 2114
+[2026-07-07 21:36:17.135] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x56B7
+re3!AK::WriteBytesMem::Clear+0x643FB6
+re3!AK::WriteBytesMem::Clear+0x6D6471
+re3!AK::WriteBytesMem::Clear+0x418683
+re3!thx_wwise_plugin_registration_OverrideScaleFactor+0x226477
+DINPUT8!igWindowRectRelToAbs+0x3E165
+re3!AK::Monitor::PostCode+0x23139F8
+re3!AK::Monitor::PostCode+0x2315ACC
+re3!AK::Monitor::PostCode+0x2315C49
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:17.135] [REFramework] [info] Reset!
+[2026-07-07 21:36:17.136] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:17.257] [REFramework] [info] Attempting to initialize DirectX 12
+[2026-07-07 21:36:17.258] [REFramework] [info] [D3D12] Creating DXTK graphics memory...
+[2026-07-07 21:36:17.258] [REFramework] [info] [D3D12] Creating command allocator...
+[2026-07-07 21:36:17.258] [REFramework] [info] [D3D12] Creating RTV descriptor heap...
+[2026-07-07 21:36:17.258] [REFramework] [info] [D3D12] Creating SRV descriptor heap...
+[2026-07-07 21:36:17.258] [REFramework] [info] [D3D12] Creating render targets...
+[2026-07-07 21:36:17.258] [REFramework] [info] [D3D12] Swapchain buffer count: 3
+[2026-07-07 21:36:17.258] [REFramework] [info] [D3D12] Back buffer format is 24
+[2026-07-07 21:36:17.264] [REFramework] [info] [D3D12] Initializing ImGui...
+[2026-07-07 21:36:17.264] [REFramework] [info] REFramework initialized
+[2026-07-07 21:36:17.292] [REFramework] [info] [TemporalUpscaler] Initializing upscale features...
+[2026-07-07 21:36:17.297] [REFramework] [info] LdrRegisterDllNotification: Loaded: amdxcffx64.dll
+[2026-07-07 21:36:17.360] [REFramework] [info] [TemporalUpscaler] Upscaled texture size: 3440x1440
+[2026-07-07 21:36:17.360] [REFramework] [info] [TemporalUpscaler] Wanted render resolution: 2024x847
+[2026-07-07 21:36:17.360] [REFramework] [info] [TemporalUpscaler] Created upscaled texture(s)
+[2026-07-07 21:36:17.458] [REFramework] [info] Successfully rendered with TemporalUpscaler
+[2026-07-07 21:36:18.460] [REFramework] [error] Present failed: 87a0001
+[2026-07-07 21:36:18.460] [REFramework] [info] D3D12 resize target called
+[2026-07-07 21:36:18.460] [REFramework] [info]  Parameters: new_target_parameters 1902bff908
+[2026-07-07 21:36:18.460] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x611A
+re3!AK::WriteBytesMem::Clear+0x644255
+re3!AK::WriteBytesMem::Clear+0x62BA60
+re3!AK::WriteBytesMem::Clear+0x64039E
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:18.460] [REFramework] [info] Reset!
+[2026-07-07 21:36:18.464] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:18.476] [REFramework] [info] D3D12 resize buffers called
+[2026-07-07 21:36:18.476] [REFramework] [info]  Parameters: buffer_count 3 width 3440 height 1440 new_format 24 swap_chain_flags 2114
+[2026-07-07 21:36:18.477] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x56B7
+re3!AK::WriteBytesMem::Clear+0x6442E6
+re3!AK::WriteBytesMem::Clear+0x62BA60
+re3!AK::WriteBytesMem::Clear+0x64039E
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:18.477] [REFramework] [info] Reset!
+[2026-07-07 21:36:18.477] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:18.492] [REFramework] [info] Attempting to initialize DirectX 12
+[2026-07-07 21:36:18.492] [REFramework] [info] [D3D12] Creating DXTK graphics memory...
+[2026-07-07 21:36:18.492] [REFramework] [info] [D3D12] Creating command allocator...
+[2026-07-07 21:36:18.493] [REFramework] [info] [D3D12] Creating RTV descriptor heap...
+[2026-07-07 21:36:18.493] [REFramework] [info] [D3D12] Creating SRV descriptor heap...
+[2026-07-07 21:36:18.493] [REFramework] [info] [D3D12] Creating render targets...
+[2026-07-07 21:36:18.493] [REFramework] [info] [D3D12] Swapchain buffer count: 3
+[2026-07-07 21:36:18.493] [REFramework] [info] [D3D12] Back buffer format is 24
+[2026-07-07 21:36:18.496] [REFramework] [info] [D3D12] Initializing ImGui...
+[2026-07-07 21:36:18.496] [REFramework] [info] REFramework initialized
+[2026-07-07 21:36:18.503] [REFramework] [info] D3D12 resize buffers called
+[2026-07-07 21:36:18.503] [REFramework] [info]  Parameters: buffer_count 3 width 3440 height 1421 new_format 24 swap_chain_flags 2114
+[2026-07-07 21:36:18.504] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x56B7
+re3!AK::WriteBytesMem::Clear+0x643FB6
+re3!AK::WriteBytesMem::Clear+0x6D6471
+re3!AK::WriteBytesMem::Clear+0x418683
+re3!thx_wwise_plugin_registration_OverrideScaleFactor+0x226477
+DINPUT8!igWindowRectRelToAbs+0x3E165
+re3!AK::Monitor::PostCode+0x23139F8
+re3!AK::Monitor::PostCode+0x2315ACC
+re3!AK::Monitor::PostCode+0x2315C49
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:18.504] [REFramework] [info] Reset!
+[2026-07-07 21:36:18.505] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:18.628] [REFramework] [info] Attempting to initialize DirectX 12
+[2026-07-07 21:36:18.628] [REFramework] [info] [D3D12] Creating DXTK graphics memory...
+[2026-07-07 21:36:18.628] [REFramework] [info] [D3D12] Creating command allocator...
+[2026-07-07 21:36:18.629] [REFramework] [info] [D3D12] Creating RTV descriptor heap...
+[2026-07-07 21:36:18.629] [REFramework] [info] [D3D12] Creating SRV descriptor heap...
+[2026-07-07 21:36:18.629] [REFramework] [info] [D3D12] Creating render targets...
+[2026-07-07 21:36:18.629] [REFramework] [info] [D3D12] Swapchain buffer count: 3
+[2026-07-07 21:36:18.629] [REFramework] [info] [D3D12] Back buffer format is 24
+[2026-07-07 21:36:18.633] [REFramework] [info] [D3D12] Initializing ImGui...
+[2026-07-07 21:36:18.633] [REFramework] [info] REFramework initialized
+[2026-07-07 21:36:18.646] [REFramework] [info] [TemporalUpscaler] Initializing upscale features...
+[2026-07-07 21:36:18.651] [REFramework] [info] LdrRegisterDllNotification: Loaded: amdxcffx64.dll
+[2026-07-07 21:36:18.713] [REFramework] [info] [TemporalUpscaler] Upscaled texture size: 3440x1421
+[2026-07-07 21:36:18.713] [REFramework] [info] [TemporalUpscaler] Wanted render resolution: 2024x836
+[2026-07-07 21:36:18.713] [REFramework] [info] [TemporalUpscaler] Created upscaled texture(s)
+[2026-07-07 21:36:19.407] [REFramework] [info] D3D12 resize target called
+[2026-07-07 21:36:19.407] [REFramework] [info]  Parameters: new_target_parameters 1902bff8f8
+[2026-07-07 21:36:19.407] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x611A
+re3!AK::WriteBytesMem::Clear+0x644255
+re3!AK::WriteBytesMem::Clear+0x645091
+re3!AK::WriteBytesMem::Clear+0x64070D
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:19.407] [REFramework] [info] Reset!
+[2026-07-07 21:36:19.411] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:19.418] [REFramework] [info] D3D12 resize buffers called
+[2026-07-07 21:36:19.418] [REFramework] [info]  Parameters: buffer_count 3 width 3440 height 1440 new_format 24 swap_chain_flags 2114
+[2026-07-07 21:36:19.418] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x56B7
+re3!AK::WriteBytesMem::Clear+0x6442E6
+re3!AK::WriteBytesMem::Clear+0x645091
+re3!AK::WriteBytesMem::Clear+0x64070D
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:19.419] [REFramework] [info] Reset!
+[2026-07-07 21:36:19.419] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:19.566] [REFramework] [info] D3D12 resize target called
+[2026-07-07 21:36:19.566] [REFramework] [info]  Parameters: new_target_parameters 1902bff8f8
+[2026-07-07 21:36:19.566] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x611A
+re3!AK::WriteBytesMem::Clear+0x644255
+re3!AK::WriteBytesMem::Clear+0x6450C2
+re3!AK::WriteBytesMem::Clear+0x64070D
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:19.566] [REFramework] [info] Reset!
+[2026-07-07 21:36:19.567] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:19.786] [REFramework] [info] D3D12 resize buffers called
+[2026-07-07 21:36:19.786] [REFramework] [info]  Parameters: buffer_count 3 width 3440 height 1440 new_format 24 swap_chain_flags 2114
+[2026-07-07 21:36:19.787] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x56B7
+re3!AK::WriteBytesMem::Clear+0x6442E6
+re3!AK::WriteBytesMem::Clear+0x6450C2
+re3!AK::WriteBytesMem::Clear+0x64070D
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:19.787] [REFramework] [info] Reset!
+[2026-07-07 21:36:19.787] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:19.795] [REFramework] [info] Attempting to initialize DirectX 12
+[2026-07-07 21:36:19.795] [REFramework] [info] [D3D12] Creating DXTK graphics memory...
+[2026-07-07 21:36:19.795] [REFramework] [info] [D3D12] Creating command allocator...
+[2026-07-07 21:36:19.797] [REFramework] [info] [D3D12] Creating RTV descriptor heap...
+[2026-07-07 21:36:19.797] [REFramework] [info] [D3D12] Creating SRV descriptor heap...
+[2026-07-07 21:36:19.797] [REFramework] [info] [D3D12] Creating render targets...
+[2026-07-07 21:36:19.797] [REFramework] [info] [D3D12] Swapchain buffer count: 3
+[2026-07-07 21:36:19.797] [REFramework] [info] [D3D12] Back buffer format is 24
+[2026-07-07 21:36:19.801] [REFramework] [info] [D3D12] Initializing ImGui...
+[2026-07-07 21:36:19.801] [REFramework] [info] REFramework initialized
+[2026-07-07 21:36:19.817] [REFramework] [info] D3D12 resize buffers called
+[2026-07-07 21:36:19.817] [REFramework] [info]  Parameters: buffer_count 3 width 3440 height 1440 new_format 24 swap_chain_flags 2114
+[2026-07-07 21:36:19.817] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x56B7
+re3!AK::WriteBytesMem::Clear+0x643FB6
+re3!AK::WriteBytesMem::Clear+0x6D6471
+re3!AK::WriteBytesMem::Clear+0x418683
+re3!thx_wwise_plugin_registration_OverrideScaleFactor+0x226477
+DINPUT8!igWindowRectRelToAbs+0x3E165
+re3!AK::Monitor::PostCode+0x23139F8
+re3!AK::Monitor::PostCode+0x2315ACC
+re3!AK::Monitor::PostCode+0x2315C49
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:19.817] [REFramework] [info] Reset!
+[2026-07-07 21:36:19.819] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:19.941] [REFramework] [info] Attempting to initialize DirectX 12
+[2026-07-07 21:36:19.941] [REFramework] [info] [D3D12] Creating DXTK graphics memory...
+[2026-07-07 21:36:19.941] [REFramework] [info] [D3D12] Creating command allocator...
+[2026-07-07 21:36:19.942] [REFramework] [info] [D3D12] Creating RTV descriptor heap...
+[2026-07-07 21:36:19.942] [REFramework] [info] [D3D12] Creating SRV descriptor heap...
+[2026-07-07 21:36:19.943] [REFramework] [info] [D3D12] Creating render targets...
+[2026-07-07 21:36:19.943] [REFramework] [info] [D3D12] Swapchain buffer count: 3
+[2026-07-07 21:36:19.943] [REFramework] [info] [D3D12] Back buffer format is 24
+[2026-07-07 21:36:19.947] [REFramework] [info] [D3D12] Initializing ImGui...
+[2026-07-07 21:36:19.947] [REFramework] [info] REFramework initialized
+[2026-07-07 21:36:19.970] [REFramework] [info] [TemporalUpscaler] Initializing upscale features...
+[2026-07-07 21:36:19.976] [REFramework] [info] LdrRegisterDllNotification: Loaded: amdxcffx64.dll
+[2026-07-07 21:36:20.043] [REFramework] [info] [TemporalUpscaler] Upscaled texture size: 3440x1440
+[2026-07-07 21:36:20.043] [REFramework] [info] [TemporalUpscaler] Wanted render resolution: 2024x847
+[2026-07-07 21:36:20.043] [REFramework] [info] [TemporalUpscaler] Created upscaled texture(s)
+[2026-07-07 21:36:21.773] [REFramework] [info] D3D12 resize target called
+[2026-07-07 21:36:21.773] [REFramework] [info]  Parameters: new_target_parameters 1902bff938
+[2026-07-07 21:36:21.773] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x611A
+re3!AK::WriteBytesMem::Clear+0x644255
+re3!AK::WriteBytesMem::Clear+0x640696
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:21.773] [REFramework] [info] Reset!
+[2026-07-07 21:36:21.776] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:21.930] [REFramework] [info] D3D12 resize buffers called
+[2026-07-07 21:36:21.930] [REFramework] [info]  Parameters: buffer_count 3 width 3440 height 1440 new_format 24 swap_chain_flags 2114
+[2026-07-07 21:36:21.930] [REFramework] [info] callstack: 
+DINPUT8!ImTextureData_GetTexID+0x56B7
+re3!AK::WriteBytesMem::Clear+0x6442E6
+re3!AK::WriteBytesMem::Clear+0x640696
+re3!AK::WriteBytesMem::Clear+0x41B493
+re3!AK::WriteBytesMem::Clear+0x419C38
+re3!AK::WriteBytesMem::Clear+0x418F99
+re3!AK::WriteBytesMem::Bytes+0x30F5
+KERNEL32!BaseThreadInitThunk+0x17
+ntdll!RtlUserThreadStart+0x2C
+
+[2026-07-07 21:36:21.930] [REFramework] [info] Reset!
+[2026-07-07 21:36:21.930] [REFramework] [info] VR: on_device_reset
+[2026-07-07 21:36:21.942] [REFramework] [info] Attempting to initialize DirectX 12
+[2026-07-07 21:36:21.942] [REFramework] [info] [D3D12] Creating DXTK graphics memory...
+[2026-07-07 21:36:21.942] [REFramework] [info] [D3D12] Creating command allocator...
+[2026-07-07 21:36:21.944] [REFramework] [info] [D3D12] Creating RTV descriptor heap...
+[2026-07-07 21:36:21.944] [REFramework] [info] [D3D12] Creating SRV descriptor heap...
+[2026-07-07 21:36:21.944] [REFramework] [info] [D3D12] Creating render targets...
+[2026-07-07 21:36:21.944] [REFramework] [info] [D3D12] Swapchain buffer count: 3
+[2026-07-07 21:36:21.944] [REFramework] [info] [D3D12] Back buffer format is 24
+[2026-07-07 21:36:21.947] [REFramework] [info] [D3D12] Initializing ImGui...
+[2026-07-07 21:36:21.947] [REFramework] [info] REFramework initialized
+[2026-07-07 21:36:22.050] [REFramework] [info] [TemporalUpscaler] Initializing upscale features...
+[2026-07-07 21:36:22.054] [REFramework] [info] LdrRegisterDllNotification: Loaded: amdxcffx64.dll
+[2026-07-07 21:36:22.116] [REFramework] [info] [TemporalUpscaler] Upscaled texture size: 3440x1440
+[2026-07-07 21:36:22.116] [REFramework] [info] [TemporalUpscaler] Wanted render resolution: 2024x847
+[2026-07-07 21:36:22.116] [REFramework] [info] [TemporalUpscaler] Created upscaled texture(s)
+[2026-07-07 21:36:34.905] [REFramework] [info] Windows message hook is still intact, ignoring...
+[2026-07-07 21:36:39.909] [REFramework] [info] Last chance encountered for hooking
+[2026-07-07 21:36:39.909] [REFramework] [info] Windows message hook is still intact, ignoring...
+[2026-07-07 21:36:40.911] [REFramework] [info] Sending rehook request for D3D
+[2026-07-07 21:36:40.911] [REFramework] [info] Unhooking D3D12
+[2026-07-07 21:36:40.912] [REFramework] [info] Hooking D3D12
+[2026-07-07 21:36:40.912] [REFramework] [info] Reinitializing D3D12Hook via known pointers
+[2026-07-07 21:36:40.912] [REFramework] [info] Initializing hooks
+[2026-07-07 21:36:40.912] [REFramework] [info] [Streamline] Hooking Streamline
+[2026-07-07 21:36:40.912] [REFramework] [error] [Streamline] Failed to get sl.dlss_g.dll module handle
+[2026-07-07 21:36:40.912] [REFramework] [info] [PointerHook.cpp:25] [PointerHook] Hooking 7ff9b84501a8->7ff9b838dad0 to 7ff8aef8b6f0
+[2026-07-07 21:36:40.912] [REFramework] [info] Hooked DirectX 12
+[2026-07-07 21:36:42.416] [REFramework] [info] LdrRegisterDllNotification: Loaded: TextShaping.dll
