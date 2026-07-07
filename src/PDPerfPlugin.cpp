@@ -294,9 +294,15 @@ void __stdcall InitLogDelegate(void (*Log)(char* message, int iSize)) {
 bool __stdcall IsUpscaleMethodAvailable(int upscaleMethod) {
     initialize();
     if (!g_useOriginal && g_fsr4) {
+        // REFramework's TemporalUpscaler enumerates the dropdown once, during
+        // on_initialize -- which runs BEFORE the game calls SetupDirectX, so
+        // g_fsr4->isAvailable() is frequently still false at that point. Both
+        // this fallback and FSR4Backend::isMethodAvailable must therefore
+        // report ONLY FSR3 (id 1); anything else just confuses the menu of an
+        // FSR4 mod. FSR4 runs under the FSR3 back-end contract.
         if (g_fsr4->isAvailable())
             return g_fsr4->isMethodAvailable(upscaleMethod);
-        return upscaleMethod >= 0 && upscaleMethod <= 2;
+        return upscaleMethod == 1; // AMD FSR 3 only, even before backend is up
     }
     if (g_useOriginal && g_original) return g_original->isUpscaleMethodAvailable(upscaleMethod);
     return false;
