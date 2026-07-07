@@ -412,45 +412,55 @@ namespace {
     // Uses an UPLOAD heap + direct Map (no extra command queue) — the same
     // proven pattern as CreateWatermarkTexture. The GPU reads it directly as a
     // copy source, so no GPU submit is needed here.
-    ID3D12Resource* CreateSolidTexture(ID3D12Device* dev, int w, int h,
-                                       DXGI_FORMAT targetFmt, uint32_t color) {
+    // Create a GPU-local (DEFAULT heap) texture of `targetFmt` and upload pixel
+    // data via WriteToSubresource. We deliberately avoid the UPLOAD heap: an
+    // UPLOAD-heap texture of R10G10B10A2_UNORM (the FSR4 output format, fmt 24)
+    // makes CreateCommittedResource fail with E_INVALIDARG (hr=80070057) on many
+    // drivers — that was the "watermark never appears" bug. WriteToSubresource
+    // handles the CPU->GPU staging internally and has no such format/heap
+    // restriction. The texture is left in COPY_SOURCE state so the per-frame
+    // CopyTextureRegion into the output (which lives in a DEFAULT heap too)
+    // is valid.
+    ID3D12Resource* CreateTexFromPixels(ID3D12Device* dev, int w, int h,
+                                        DXGI_FORMAT targetFmt,
+                                        const std::vector<uint32_t>& px) {
         D3D12_RESOURCE_DESC desc = {};
         desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         desc.Width = (UINT64)w; desc.Height = (UINT)h; desc.DepthOrArraySize = 1;
         desc.MipLevels = 1; desc.Format = targetFmt;
         desc.SampleDesc.Count = 1; desc.SampleDesc.Quality = 0;
-        // A texture in an UPLOAD heap MUST be row-major; leaving Layout UNKNOWN
-        // makes CreateCommittedResource fail with E_INVALIDARG (hr=80070057),
-        // which silently killed both the DIAG green and the watermark badge.
-        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
         ID3D12Resource* tex = nullptr;
         D3D12_HEAP_PROPERTIES hp = {};
-        hp.Type = D3D12_HEAP_TYPE_UPLOAD;
+        hp.Type = D3D12_HEAP_TYPE_DEFAULT;
         HRESULT hr = dev->CreateCommittedResource(
             &hp, D3D12_HEAP_FLAG_NONE, &desc,
-            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&tex));
+            D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr, IID_PPV_ARGS(&tex));
         if (FAILED(hr)) {
-            Logging::error("FSR4Backend: CreateSolidTexture CreateCommittedResource failed hr=%08x", hr);
+            Logging::error("FSR4Backend: CreateTexFromPixels CreateCommittedResource failed hr=%08x", hr);
             return nullptr;
         }
 
-        // Query the real upload row pitch (ROW_MAJOR may pad beyond w*4).
-        D3D12_PLACED_SUBRESOURCE_FOOTPRINT foot = {};
-        UINT rowBytes = 0; UINT64 totalBytes = 0;
-        dev->GetCopyableFootprints(&desc, 0, 1, 0, &foot, &rowBytes, &totalBytes, nullptr);
-        const UINT rowPitch = foot.Footprint.RowPitch;
-        D3D12_RANGE readRange = {0, 0}; // we only write
-        void* mapped = nullptr;
-        if (FAILED(tex->Map(0, &readRange, &mapped))) {
-            Logging::error("FSR4Backend: CreateSolidTexture Map failed");
-            tex->Release(); return nullptr;
+        // WriteToSubresource does the staging (intermediate upload heap) for us.
+        D3D12_SUBRESOURCE_DATA sub = {};
+        sub.pData = px.data();
+        sub.RowPitch = (LONG_PTR)(w * 4);
+        sub.SlicePitch = (LONG_PTR)((size_t)w * h * 4);
+        hr = tex->WriteToSubresource(0, nullptr, sub.pData, (UINT)sub.RowPitch, (UINT)sub.SlicePitch);
+        if (FAILED(hr)) {
+            Logging::error("FSR4Backend: CreateTexFromPixels WriteToSubresource failed hr=%08x", hr);
+            tex->Release();
+            return nullptr;
         }
-        for (UINT y = 0; y < (UINT)h; ++y)
-            memcpy((uint8_t*)mapped + (size_t)y * rowPitch, &color, 4); // w*4 bytes all identical
-        tex->Unmap(0, nullptr);
         return tex;
+    }
+
+    ID3D12Resource* CreateSolidTexture(ID3D12Device* dev, int w, int h,
+                                       DXGI_FORMAT targetFmt, uint32_t color) {
+        std::vector<uint32_t> px((size_t)w * h, color);
+        return CreateTexFromPixels(dev, w, h, targetFmt, px);
     }
 
     ID3D12Resource* CreateWatermarkTexture(ID3D12Device* dev, int& outW, int& outH,
@@ -479,41 +489,8 @@ namespace {
             }
         }
 
-        D3D12_RESOURCE_DESC desc = {};
-        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        desc.Width = w; desc.Height = h; desc.DepthOrArraySize = 1;
-        desc.MipLevels = 1; desc.Format = targetFmt;
-        desc.SampleDesc.Count = 1; desc.SampleDesc.Quality = 0;
-        // UPLOAD-heap textures MUST be row-major or CreateCommittedResource
-        // fails with E_INVALIDARG (hr=80070057); that silently killed the badge.
-        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-
-        ID3D12Resource* tex = nullptr;
-        D3D12_HEAP_PROPERTIES hp = {};
-        hp.Type = D3D12_HEAP_TYPE_UPLOAD;
-        HRESULT hr = dev->CreateCommittedResource(
-            &hp,
-            D3D12_HEAP_FLAG_NONE, &desc,
-            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&tex));
-        if (FAILED(hr)) {
-            Logging::error("FSR4Backend: CreateWatermarkTexture CreateCommittedResource failed hr=%08x", hr);
-            return nullptr;
-        }
-
-        D3D12_PLACED_SUBRESOURCE_FOOTPRINT foot = {};
-        UINT rowBytes = 0; UINT64 totalBytes = 0;
-        dev->GetCopyableFootprints(&desc, 0, 1, 0, &foot, &rowBytes, &totalBytes, nullptr);
-        UINT rowPitch = foot.Footprint.RowPitch;
-        D3D12_RANGE read = {0, 0};
-        void* mapped = nullptr;
-        if (FAILED(tex->Map(0, &read, &mapped))) {
-            Logging::error("FSR4Backend: CreateWatermarkTexture Map failed");
-            tex->Release(); return nullptr;
-        }
-        for (int y = 0; y < h; ++y)
-            memcpy((uint8_t*)mapped + (size_t)y * rowPitch, px.data() + (size_t)y * w, (size_t)w * 4);
-        tex->Unmap(0, nullptr);
-        outW = w; outH = h;
+        ID3D12Resource* tex = CreateTexFromPixels(dev, w, h, targetFmt, px);
+        if (tex) { outW = w; outH = h; }
         return tex;
     }
 }
@@ -878,6 +855,12 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
                 ctx.watermarkTex = CreateWatermarkTexture(m_impl->device,
                                                           ctx.watermarkW, ctx.watermarkH,
                                                           (DXGI_FORMAT)ctx.format);
+                if (ctx.watermarkTex) {
+                    Logging::info("FSR4Backend: watermark texture created %dx%d (DEFAULT heap, COPY_SOURCE) — will be copied into output each frame",
+                                  ctx.watermarkW, ctx.watermarkH);
+                } else {
+                    Logging::error("FSR4Backend: watermark texture creation FAILED (see CreateTexFromPixels error above)");
+                }
             }
             if (ctx.watermarkTex && ctx.watermarkW > 0 && ctx.watermarkH > 0) {
                 ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
