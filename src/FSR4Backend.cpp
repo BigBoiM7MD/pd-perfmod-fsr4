@@ -443,11 +443,27 @@ namespace {
             return nullptr;
         }
 
-        // WriteToSubresource does the staging (intermediate upload heap) for us.
+        // WriteToSubresource requires the source row pitch to match the
+        // texture's footprint pitch EXACTLY. D3D12 always aligns a texture row
+        // pitch up to 256 bytes, so for a 200px-wide R10G10B10A2 texture the
+        // footprint is 1024 bytes even though our pixels are only 800 bytes/row.
+        // Passing a tight 800-byte row pitch makes WriteToSubresource return
+        // E_INVALIDARG (hr=80070057). So we lay the pixels out with the aligned
+        // pitch (256-aligned) in a staging buffer before uploading.
+        const UINT bytesPerPixel = 4; // R10G10B10A2_UNORM = 4 bytes
+        const UINT tightRow = (UINT)w * bytesPerPixel;
+        const UINT alignedRow =
+            (tightRow + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1) &
+            ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1); // 256-byte align
+        std::vector<uint8_t> staged((size_t)alignedRow * h);
+        for (int y = 0; y < h; ++y) {
+            memcpy(staged.data() + (size_t)y * alignedRow,
+                   px.data() + (size_t)y * w, (size_t)tightRow);
+        }
         D3D12_SUBRESOURCE_DATA sub = {};
-        sub.pData = px.data();
-        sub.RowPitch = (LONG_PTR)(w * 4);
-        sub.SlicePitch = (LONG_PTR)((size_t)w * h * 4);
+        sub.pData = staged.data();
+        sub.RowPitch = (LONG_PTR)alignedRow;
+        sub.SlicePitch = (LONG_PTR)((size_t)alignedRow * h);
         hr = tex->WriteToSubresource(0, nullptr, sub.pData, (UINT)sub.RowPitch, (UINT)sub.SlicePitch);
         if (FAILED(hr)) {
             Logging::error("FSR4Backend: CreateTexFromPixels WriteToSubresource failed hr=%08x", hr);
