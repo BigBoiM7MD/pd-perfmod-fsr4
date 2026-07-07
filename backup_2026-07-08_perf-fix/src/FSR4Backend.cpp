@@ -750,11 +750,13 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
                 cl2->Close();
                 ID3D12CommandList* lists[] = { cl2 };
                 m_impl->commandQueue->ExecuteCommandLists(1, lists);
-                // Signal for allocator lifetime only — no per-frame CPU stall
-                // (see normal path below for rationale).
                 m_impl->commandQueue->Signal(m_impl->fence, ++m_impl->fenceValue);
-                return; // skip FSR4 entirely in solid mode
+                if (m_impl->fence->GetCompletedValue() < m_impl->fenceValue) {
+                    m_impl->fence->SetEventOnCompletion(m_impl->fenceValue, m_impl->fenceEvent);
+                    WaitForSingleObject(m_impl->fenceEvent, INFINITE);
+                }
             }
+            return; // skip FSR4 entirely in solid mode
         }
     }
 #endif
@@ -848,36 +850,11 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
 
         ID3D12CommandList* lists[] = { cl };
         m_impl->commandQueue->ExecuteCommandLists(1, lists);
-        // Signal the fence so the allocator isn't reset while this work is still
-        // in flight (needed for allocator lifetime), but DO NOT block on it.
-        // The old code did WaitForSingleObject(..., INFINITE) here every frame,
-        // which forced a full CPU->GPU sync and serialized the pipeline — the
-        // cause of the FSR4 perf regression (GPU left ~23% idle, CPU-bound).
-        // REFramework copies our output on the SAME command queue (copier.copy
-        // -> backbuffer), so in-order queue execution already guarantees the
-        // upscale finishes before the copy reads it. Forward progress is bounded
-        // by the pre-reset check at 585 via the next frame's WaitForSingleObject.
         m_impl->commandQueue->Signal(m_impl->fence, ++m_impl->fenceValue);
-    }
 
-    // --- Per-frame CPU timing (rate-limited) ---------------------------------
-    // Measures how long THIS function (CPU side) takes per call. Used to confirm
-    // the fence-stall regression is gone. Should be a few microseconds once the
-    // per-frame WaitForSingleObject is removed.
-    {
-        static long long s_t0 = 0;
-        if (s_t0 == 0) s_t0 = (long long)GetTickCount64();
-        static long long s_lastLog = 0;
-        static double s_msSum = 0; static long long s_n = 0;
-        long long t1 = (long long)GetTickCount64();
-        s_msSum += (double)(t1 - s_t0); s_n++;
-        s_t0 = t1;
-        if (t1 - s_lastLog > 2000) {
-            s_lastLog = t1;
-            double avg = s_n ? (s_msSum / (double)s_n) : 0.0;
-            Logging::info("FSR4Backend: evaluate() CPU avg=%.3f ms over %lld calls (no per-frame GPU stall)",
-                          avg, (long long)s_n);
-            s_msSum = 0; s_n = 0;
+        if (m_impl->fence->GetCompletedValue() < m_impl->fenceValue) {
+            m_impl->fence->SetEventOnCompletion(m_impl->fenceValue, m_impl->fenceEvent);
+            WaitForSingleObject(m_impl->fenceEvent, INFINITE);
         }
     }
 }
