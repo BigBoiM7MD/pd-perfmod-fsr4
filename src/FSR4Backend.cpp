@@ -219,16 +219,18 @@ static void formatFsrVersion(char* buf, size_t n) {
     _snprintf_s(buf, n, _TRUNCATE, "FSR4 V%d.%d.%d", major, minor, patch);
 }
 
-// Map REFramework's qualityLevel enum to the FSR preset name shown on the badge.
-// Mirrors the scale switch in createContext (case values are the FSR2/3 enum):
-//   0=Ultra Quality, 1=Quality, 2=Balanced, 3=Performance(3.0x), 4=Ultra Perf.
+// Map REFramework's QualityLevel dropdown index to the FSR preset name shown
+// on the badge. This is the EXACT ordering REFramework exposes in the
+// TemporalUpscaler "Quality Level" dropdown (see UpscaleQuality enum):
+//   0 = Native (1:1, no upscaling), 1 = Ultra Quality(1.3x), 2 = Quality(1.5x),
+//   3 = Balanced(1.7x), 4 = Performance(2.0x). Anything else => CUSTOM.
 static const char* qualityLevelName(int qualityLevel) {
     switch (qualityLevel) {
-        case 0: return "ULTRA QUALITY";
-        case 1: return "QUALITY";
-        case 2: return "BALANCED";
-        case 3: return "PERFORMANCE";
-        case 4: return "ULTRA PERFORMANCE";
+        case 0: return "NATIVE";
+        case 1: return "ULTRA QUALITY";
+        case 2: return "QUALITY";
+        case 3: return "BALANCED";
+        case 4: return "PERFORMANCE";
         default: return "CUSTOM";
     }
 }
@@ -261,6 +263,7 @@ struct UpscaleContext {
     // Strings baked into the watermark badge (FSR version + quality preset).
     char              fsrVersion[32] = {0};
     char              qualityName[32]= {0};
+    int               watermarkQuality = -1; // qualityLevel the badge was built for; rebuild on change
     ID3D12Resource*   solidTex       = nullptr; // PD_FSR4_DIAG_SOLID test texture
     ID3D12Device*     device         = nullptr;
 
@@ -915,11 +918,22 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             }
             bool wm_off = (s_lastWm == 1);
             if (!wm_off && m_impl->device && effectiveDst) {
-                if (!ctx.watermarkTex) {
+                // Keep the badge in sync with the live quality level. REFramework
+                // can change quality (and rebuild the context) without our badge
+                // noticing, so refresh the cached name + rebuild the texture when
+                // the quality differs from what the badge currently shows.
+                const char* liveName = qualityLevelName(ctx.qualityLevel);
+                if (strcmp(liveName, ctx.qualityName) != 0) {
+                    _snprintf_s(ctx.qualityName, sizeof(ctx.qualityName), _TRUNCATE, "%s", liveName);
+                }
+                bool rebuild = (!ctx.watermarkTex) || (ctx.watermarkQuality != ctx.qualityLevel);
+                if (rebuild) {
+                    if (ctx.watermarkTex) { ctx.watermarkTex->Release(); ctx.watermarkTex = nullptr; }
                     ctx.watermarkTex = Fsr4Overlay::createWatermarkTexture(m_impl->device, m_impl->commandQueue,
                                                           ctx.watermarkW, ctx.watermarkH,
                                                           (DXGI_FORMAT)ctx.format,
                                                           ctx.fsrVersion, ctx.qualityName);
+                    ctx.watermarkQuality = ctx.qualityLevel;
                     if (ctx.watermarkTex) {
                         Logging::info("FSR4Backend: watermark texture created %dx%d (DEFAULT heap, COPY_SOURCE) — will be copied into output each frame",
                                       ctx.watermarkW, ctx.watermarkH);
