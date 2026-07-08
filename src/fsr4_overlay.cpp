@@ -1,20 +1,18 @@
 // fsr4_overlay.cpp
-// Standalone FSR4 output-overlay texture helpers. See fsr4_overlay.h for the
-// full rationale. The single supported fill path is:
+// Standalone FSR4 output-overlay texture helpers (DIAG_SOLID only now).
+// See fsr4_overlay.h for the full rationale. The single supported fill path is:
 //   DEFAULT-heap texture (COPY_DEST) <-- CopyTextureRegion <-- UPLOAD-heap
 //   BUFFER (format-agnostic) <-- Map. No UPLOAD-heap R10G10B10A2 textures,
 //   no WriteToSubresource. Validated end-to-end on D3D12 WARP.
 //
-// COLOR FORMAT NOTE (the "blue field" bug):
+// COLOR FORMAT NOTE:
 //   The output backbuffer format is chosen by the game/REFramework at runtime
-//   and handed to us as `ctx.format`. We MUST pack our badge pixels into that
-//   SAME format. The previous code hardcoded an R10G10B10A2 byte layout and a
-//   fixed 4-byte/px stride, so under the game's actual R8G8B8A8_UNORM output
-//   the panel color 0xEE101010 was read as bytes (R=0x10,G=0x10,B=0xEE) -> a
-//   SOLID BLUE rectangle instead of dark gray. All color packing below is now
-//   format-aware via packColor()/formatBpp().
-#include "..\include\fsr4_overlay.h"
-#include "..\include\Logging.h"
+//   and handed to us as `ctx.format`. We MUST pack our pixels into that SAME
+//   format (see packColor()/formatBpp()) -- packing for the wrong format turns
+//   e.g. a dark-gray panel into a solid blue rectangle. All packing below is
+//   format-aware.
+#include "../include/fsr4_overlay.h"
+#include "../include/Logging.h"
 
 #include <d3d12.h>
 #include <dxgi1_4.h>
@@ -26,121 +24,10 @@
 namespace Fsr4Overlay {
 
 // ---------------------------------------------------------------------------
-// 5x7 bitmap font. Each glyph is 7 rows; each row byte has bit0 = LEFT-most
-// column, bit4 = RIGHT-most column (the renderer in drawStringScaled() reads
-// (bits >> col) & 1 with col 0..4). A '?' placeholder covers any char we
-// didn't encode. This is the classic "5x7 dot-matrix" reference font.
-// ---------------------------------------------------------------------------
-static const uint8_t FONT[][7] = {
-/* space */ {0x00,0x00,0x00,0x00,0x00,0x00,0x00},
-/* ! */     {0x00,0x00,0x5F,0x00,0x00,0x00,0x00},
-/* " */     {0x00,0x07,0x00,0x07,0x00,0x00,0x00},
-/* # */     {0x14,0x7F,0x14,0x7F,0x14,0x00,0x00},
-/* $ */     {0x24,0x2A,0x7F,0x2A,0x12,0x00,0x00},
-/* % */     {0x23,0x13,0x08,0x64,0x62,0x00,0x00},
-/* & */     {0x36,0x49,0x55,0x22,0x50,0x00,0x00},
-/* ' */     {0x00,0x05,0x03,0x00,0x00,0x00,0x00},
-/* ( */     {0x00,0x1C,0x22,0x41,0x00,0x00,0x00},
-/* ) */     {0x00,0x41,0x22,0x1C,0x00,0x00,0x00},
-/* * */     {0x14,0x08,0x3E,0x08,0x14,0x00,0x00},
-/* + */     {0x08,0x08,0x3E,0x08,0x08,0x00,0x00},
-/* , */     {0x00,0x00,0x50,0x30,0x00,0x00,0x00},
-/* - */     {0x08,0x08,0x08,0x08,0x08,0x00,0x00},
-/* . */     {0x00,0x60,0x60,0x00,0x00,0x00,0x00},
-/* / */     {0x20,0x10,0x08,0x04,0x02,0x00,0x00},
-/* 0 */     {0x3E,0x51,0x49,0x45,0x3E,0x00,0x00},
-/* 1 */     {0x00,0x42,0x7F,0x40,0x00,0x00,0x00},
-/* 2 */     {0x42,0x61,0x51,0x49,0x46,0x00,0x00},
-/* 3 */     {0x21,0x41,0x45,0x4B,0x31,0x00,0x00},
-/* 4 */     {0x18,0x14,0x12,0x7F,0x10,0x00,0x00},
-/* 5 */     {0x27,0x45,0x45,0x45,0x39,0x00,0x00},
-/* 6 */     {0x3C,0x4A,0x49,0x49,0x30,0x00,0x00},
-/* 7 */     {0x01,0x71,0x09,0x05,0x03,0x00,0x00},
-/* 8 */     {0x36,0x49,0x49,0x49,0x36,0x00,0x00},
-/* 9 */     {0x06,0x49,0x49,0x29,0x1E,0x00,0x00},
-/* : */     {0x00,0x36,0x36,0x00,0x00,0x00,0x00},
-/* ; */     {0x00,0x56,0x36,0x00,0x00,0x00,0x00},
-/* < */     {0x08,0x14,0x22,0x41,0x00,0x00,0x00},
-/* = */     {0x14,0x14,0x14,0x14,0x14,0x00,0x00},
-/* > */     {0x00,0x41,0x22,0x14,0x08,0x00,0x00},
-/* ? */     {0x02,0x01,0x51,0x09,0x06,0x00,0x00},
-/* @ */     {0x32,0x49,0x79,0x41,0x3E,0x00,0x00},
-/* A */     {0x7E,0x11,0x11,0x11,0x7E,0x00,0x00},
-/* B */     {0x7F,0x49,0x49,0x49,0x36,0x00,0x00},
-/* C */     {0x3E,0x41,0x41,0x41,0x22,0x00,0x00},
-/* D */     {0x7F,0x41,0x41,0x22,0x1C,0x00,0x00},
-/* E */     {0x7F,0x49,0x49,0x49,0x41,0x00,0x00},
-/* F */     {0x7F,0x09,0x09,0x09,0x01,0x00,0x00},
-/* G */     {0x3E,0x41,0x49,0x49,0x7A,0x00,0x00},
-/* H */     {0x7F,0x08,0x08,0x08,0x7F,0x00,0x00},
-/* I */     {0x00,0x41,0x7F,0x41,0x00,0x00,0x00},
-/* J */     {0x20,0x40,0x41,0x3F,0x01,0x00,0x00},
-/* K */     {0x7F,0x08,0x14,0x22,0x41,0x00,0x00},
-/* L */     {0x7F,0x40,0x40,0x40,0x40,0x00,0x00},
-/* M */     {0x7F,0x02,0x04,0x02,0x7F,0x00,0x00},
-/* N */     {0x7F,0x04,0x08,0x10,0x7F,0x00,0x00},
-/* O */     {0x3E,0x41,0x41,0x41,0x3E,0x00,0x00},
-/* P */     {0x7F,0x09,0x09,0x09,0x06,0x00,0x00},
-/* Q */     {0x3E,0x41,0x41,0x61,0x7E,0x00,0x00},
-/* R */     {0x7F,0x09,0x19,0x29,0x46,0x00,0x00},
-/* S */     {0x46,0x49,0x49,0x49,0x31,0x00,0x00},
-/* T */     {0x01,0x01,0x7F,0x01,0x01,0x00,0x00},
-/* U */     {0x3F,0x40,0x40,0x40,0x3F,0x00,0x00},
-/* V */     {0x1F,0x20,0x40,0x20,0x1F,0x00,0x00},
-/* W */     {0x3F,0x40,0x38,0x40,0x3F,0x00,0x00},
-/* X */     {0x63,0x14,0x08,0x14,0x63,0x00,0x00},
-/* Y */     {0x07,0x08,0x70,0x08,0x07,0x00,0x00},
-/* Z */     {0x61,0x51,0x49,0x45,0x43,0x00,0x00},
-/* [ */     {0x00,0x7F,0x41,0x41,0x00,0x00,0x00},
-/* \ */     {0x02,0x04,0x08,0x10,0x20,0x00,0x00},
-/* ] */     {0x00,0x41,0x41,0x7F,0x00,0x00,0x00},
-/* ^ */     {0x04,0x02,0x01,0x02,0x04,0x00,0x00},
-/* _ */     {0x40,0x40,0x40,0x40,0x40,0x00,0x00},
-/* ` */     {0x00,0x01,0x02,0x04,0x00,0x00,0x00},
-/* a */     {0x20,0x54,0x54,0x54,0x78,0x00,0x00},
-/* b */     {0x7F,0x48,0x44,0x44,0x38,0x00,0x00},
-/* c */     {0x38,0x44,0x44,0x44,0x20,0x00,0x00},
-/* d */     {0x38,0x44,0x44,0x48,0x7F,0x00,0x00},
-/* e */     {0x38,0x54,0x54,0x54,0x18,0x00,0x00},
-/* f */     {0x08,0x7E,0x09,0x01,0x02,0x00,0x00},
-/* g */     {0x0C,0x52,0x52,0x52,0x3E,0x00,0x00},
-/* h */     {0x7F,0x08,0x04,0x04,0x78,0x00,0x00},
-/* i */     {0x00,0x48,0x7A,0x40,0x00,0x00,0x00},
-/* j */     {0x20,0x40,0x44,0x3D,0x00,0x00,0x00},
-/* k */     {0x7F,0x10,0x28,0x44,0x00,0x00,0x00},
-/* l */     {0x00,0x41,0x7F,0x40,0x00,0x00,0x00},
-/* m */     {0x7C,0x04,0x18,0x04,0x78,0x00,0x00},
-/* n */     {0x7C,0x08,0x04,0x04,0x78,0x00,0x00},
-/* o */     {0x38,0x44,0x44,0x44,0x38,0x00,0x00},
-/* p */     {0x7C,0x14,0x14,0x14,0x08,0x00,0x00},
-/* q */     {0x08,0x14,0x14,0x18,0x7C,0x00,0x00},
-/* r */     {0x7C,0x08,0x04,0x04,0x08,0x00,0x00},
-/* s */     {0x48,0x54,0x54,0x54,0x20,0x00,0x00},
-/* t */     {0x04,0x3F,0x44,0x40,0x20,0x00,0x00},
-/* u */     {0x3C,0x40,0x40,0x20,0x7C,0x00,0x00},
-/* v */     {0x1C,0x20,0x40,0x20,0x1C,0x00,0x00},
-/* w */     {0x3C,0x40,0x30,0x40,0x3C,0x00,0x00},
-/* x */     {0x44,0x28,0x10,0x28,0x44,0x00,0x00},
-/* y */     {0x0C,0x50,0x50,0x50,0x3C,0x00,0x00},
-/* z */     {0x44,0x64,0x54,0x4C,0x44,0x00,0x00},
-/* { */     {0x00,0x08,0x36,0x41,0x00,0x00,0x00},
-/* | */     {0x00,0x00,0x7F,0x00,0x00,0x00,0x00},
-/* } */     {0x00,0x41,0x36,0x08,0x00,0x00,0x00},
-/* ~ */     {0x02,0x01,0x02,0x04,0x02,0x00,0x00},
-};
-
-// Map an ASCII code to a FONT[] index (covering 0x20..0x7E).
-static int fontIndexFor(char c) {
-    unsigned u = (unsigned char)c;
-    if (u < 0x20 || u > 0x7E) return 0x3F - 0x20; // '?' glyph
-    return (int)(u - 0x20);
-}
-
-// ---------------------------------------------------------------------------
-// Format-aware pixel packing. The badge textures are created with the SAME
-// DXGI_FORMAT as the game output, so we must lay out each pixel in that
-// format's byte order. Returns bytes-per-pixel for the common display formats
-// (everything else is conservatively treated as 4).
+// Format-aware pixel packing. The DIAG_SOLID texture (and any future overlay)
+// is created with the SAME DXGI_FORMAT as the game output, so we must lay out
+// each pixel in that format's byte order. Returns bytes-per-pixel for the
+// common display formats (everything else is conservatively treated as 4).
 // ---------------------------------------------------------------------------
 static int formatBpp(DXGI_FORMAT fmt) {
     switch (fmt) {
@@ -187,42 +74,6 @@ static void packColor(DXGI_FORMAT fmt, uint8_t out[8], uint8_t r, uint8_t g, uin
         }
         default: // R8G8B8A8(_TYPED/LESS) and everything else: R,G,B,A
             out[0] = r; out[1] = g; out[2] = b; out[3] = a; break;
-    }
-}
-
-// Stamp `str` into px (a w x h buffer of `bpp`-byte pixels) starting at (x0,y0),
-// in `color` (already packed for the target format, `bpp` bytes). Each 5x7
-// glyph pixel is expanded to `scale`x`scale` blocks so the badge stays legible
-// when copied 1:1 into a full-resolution backbuffer. Bit0 of a row byte is
-// column 0 (left), so we test (bits >> col) & 1. Out-of-range writes clipped.
-// If `mask` is non-null it is filled 1 where a text pixel lands (used by the
-// antialiasing downsample pass, which is format-independent).
-static void drawStringScaled(std::vector<uint8_t>& px, int w, int h, int x0, int y0,
-                             const char* str, const uint8_t* color, int bpp, int scale,
-                             std::vector<uint8_t>* mask = nullptr, int mw = 0) {
-    if (!str || scale < 1) return;
-    int x = x0;
-    for (const char* p = str; *p; ++p) {
-        const uint8_t* g = FONT[fontIndexFor(*p)];
-        for (int row = 0; row < 7; ++row) {
-            uint8_t bits = g[row];
-            for (int col = 0; col < 5; ++col) {
-                if ((bits >> col) & 1) {
-                    for (int dy = 0; dy < scale; ++dy) {
-                        int gy = y0 + row * scale + dy;
-                        for (int dx = 0; dx < scale; ++dx) {
-                            int gx = x + col * scale + dx;
-                            if (gx >= 0 && gx < w && gy >= 0 && gy < h) {
-                                size_t off = ((size_t)gy * w + gx) * bpp;
-                                memcpy(&px[off], color, bpp);
-                                if (mask && mw > 0) (*mask)[(size_t)gy * mw + gx] = 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        x += 6 * scale; // 5px glyph + 1px gap, scaled
     }
 }
 
@@ -366,100 +217,6 @@ ID3D12Resource* createSolidTexture(ID3D12Device* dev, ID3D12CommandQueue* queue,
     std::vector<uint8_t> px((size_t)w * h * bpp, 0);
     for (size_t i = 0; i < (size_t)w * h; ++i) memcpy(&px[i * bpp], c, bpp);
     return createTexFromPixels(dev, queue, w, h, targetFmt, px);
-}
-
-ID3D12Resource* createWatermarkTexture(ID3D12Device* dev, ID3D12CommandQueue* queue,
-                                        int& outW, int& outH, DXGI_FORMAT targetFmt,
-                                        const char* fsrVersion, const char* qualityLevelName,
-                                        int dispW, int dispH) {
-    // Two-line badge: line 1 = FSR version, line 2 = upscaling quality level.
-    // Glyphs are scaled up so the badge stays a readable FRACTION of the output
-    // height regardless of resolution (5px text is invisible on 1080p+). A solid
-    // dark panel sits behind the text for contrast over any scene. Colors are
-    // packed for the game's ACTUAL output format (see packColor) so the panel
-    // really is dark gray, not a blue field.
-    //
-    // WHY SUPERSAMPLE + ANTIALIAS:
-    //   REFramework's copier upscales this output texture to the real backbuffer
-    //   with a LINEAR filter. A binary 5px pixel-font does NOT survive a linear
-    //   magnification -- the hard on/off edges moire into garbage (the in-game
-    //   "completely garbled" report). Fix: rasterize at 2x, then downsample the
-    //   hi-res mask to the final size by COVERAGE (output alpha = text-coverage
-    //   in each dest pixel), giving smooth, linearly-interpolable edges that
-    //   stay crisp through the present upscale. Coverage is format-independent
-    //   (we blend PANEL..TEXT per dest pixel), so it works for R10G10B10A2 etc.
-    //
-    // SCALE is derived from the output height: target ~3.2% of height per badge
-    // line (7 glyph rows), clamped to [2,7]. On 1080p => ~34px line => SCALE=5;
-    // on 4K => SCALE=7. The badge is ~7% of output height tall -- same on-screen
-    // fraction after the (uniform-fraction) present stretch.
-    (void)dispW;
-    const int lineH = 7;                       // glyph rows
-    int targetPix = (int)((dispH * 0.032) + 0.5);
-    int SCALE = (int)((float)targetPix / lineH + 0.5);
-    if (SCALE < 2) SCALE = 2;
-    if (SCALE > 7) SCALE = 7;
-    const int SS = 2;                          // supersample factor
-    const int GLYPH_W = 5 * SCALE * SS;        // hi-res glyph cell (incl. 1px gap)
-    const int GLYPH_H = 7 * SCALE * SS;        // hi-res line
-    const int PAD     = 8 * SCALE * SS;        // hi-res padding
-    const int LINE_GAP = 6 * SCALE * SS;       // hi-res inter-line gap
-    const int bpp = formatBpp(targetFmt);
-    uint8_t PANEL[8], TEXT[8];
-    packColor(targetFmt, PANEL, 18, 18, 18, 235); // near-opaque dark gray
-    packColor(targetFmt, TEXT,   0, 255, 0, 255); // opaque green
-
-    auto lineWidth = [GLYPH_W](const char* s) -> int {
-        int n = s ? (int)strlen(s) : 0;
-        return n > 0 ? n * GLYPH_W : 0;
-    };
-    int wText = lineWidth(fsrVersion);
-    int qw = lineWidth(qualityLevelName);
-    if (qw > wText) wText = qw;
-    int wHi = wText + PAD * 2;
-    int hHi = PAD * 2 + GLYPH_H * 2 + LINE_GAP;
-
-    // --- Hi-res raster: PANEL-filled, TEXT where glyph pixels land -----------
-    std::vector<uint8_t> pxHi((size_t)wHi * hHi * bpp, 0);
-    for (size_t i = 0; i < (size_t)wHi * hHi; ++i) memcpy(&pxHi[i * bpp], PANEL, bpp);
-    std::vector<uint8_t> maskHi((size_t)wHi * hHi, 0);
-    int y1 = PAD;
-    int y2 = PAD + GLYPH_H + LINE_GAP;
-    drawStringScaled(pxHi, wHi, hHi, PAD, y1, fsrVersion,       TEXT, bpp, SCALE * SS, &maskHi, wHi);
-    drawStringScaled(pxHi, wHi, hHi, PAD, y2, qualityLevelName, TEXT, bpp, SCALE * SS, &maskHi, wHi);
-
-    // --- Downsample: dest pixel = coverage-weighted blend PANEL..TEXT --------
-    // This produces GREY edges (partial alpha over the dark panel) that the
-    // linear present upscale interpolates cleanly instead of moiring.
-    int w = wHi / SS, h = hHi / SS;
-    std::vector<uint8_t> px((size_t)w * h * bpp, 0);
-    const int win = SS * SS;
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            int cov = 0;
-            for (int sy = 0; sy < SS; ++sy)
-                for (int sx = 0; sx < SS; ++sx)
-                    cov += maskHi[((size_t)(y * SS + sy)) * wHi + (x * SS + sx)];
-            uint8_t* d = &px[((size_t)y * w + x) * bpp];
-            float t = (float)cov / win;            // 0=panel, 1=text
-            if (t <= 0.0f)      memcpy(d, PANEL, bpp);
-            else if (t >= 1.0f) memcpy(d, TEXT, bpp);
-            else {
-                // blend each source channel (format-agnostic; all our formats
-                // are R,G,B,A with per-channel [0..max], linear enough here).
-                for (int c = 0; c < bpp && c < 4; ++c) {
-                    uint8_t pv = PANEL[c], tv = TEXT[c];
-                    d[c] = (uint8_t)(pv + (tv - pv) * t + 0.5f);
-                }
-                // keep format's alpha correct
-                if (bpp >= 4) d[bpp - 1] = PANEL[bpp - 1];
-            }
-        }
-    }
-
-    ID3D12Resource* tex = createTexFromPixels(dev, queue, w, h, targetFmt, px);
-    if (tex) { outW = w; outH = h; }
-    return tex;
 }
 
 } // namespace Fsr4Overlay

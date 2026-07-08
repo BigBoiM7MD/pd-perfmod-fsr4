@@ -206,7 +206,7 @@ static_assert(sizeof(ffxDispatchDescUpscale) == 432, "DispatchDesc size");
 static_assert(sizeof(ffxCreateContextDescUpscale) == 48, "CreateDesc size");
 
 // -----------------------------------------------------------------------
-// Watermark helper strings
+// Version / quality helper strings (logged from createContext)
 // -----------------------------------------------------------------------
 
 // Decode FFX_UPSCALER_VERSION (packed as (major<<22)|(minor<<12)|patch) into
@@ -254,16 +254,10 @@ struct UpscaleContext {
     ffxContext        ffxCtx         = nullptr;
     ID3D12Resource*   outputTexture  = nullptr;
 
-    // Verification watermark: a small badge copied into this output texture so
-    // that, if it appears on screen, we know FSR4's output texture is the one
-    // REFramework presents. Drawn via CopyTextureRegion (no shader).
-    ID3D12Resource*   watermarkTex   = nullptr;
-    int               watermarkW     = 0;
-    int               watermarkH     = 0;
-    // Strings baked into the watermark badge (FSR version + quality preset).
+    // FSR version + quality preset strings (logged from createContext; no
+    // on-screen watermark anymore).
     char              fsrVersion[32] = {0};
     char              qualityName[32]= {0};
-    int               watermarkQuality = -1; // qualityLevel the badge was built for; rebuild on change
     ID3D12Resource*   solidTex       = nullptr; // PD_FSR4_DIAG_SOLID test texture
     ID3D12Device*     device         = nullptr;
 
@@ -293,10 +287,10 @@ struct FSR4Backend::Impl {
     HANDLE                     fenceEvent = nullptr;
     uint64_t                   fenceValue = 0;
 
-    // Cached directory of PDPerfPlugin.dll (resolved once). Sentinel-file
-    // toggles (PD_FSR4_DIAG_SOLID / PD_FSR4_NO_WATERMARK) live here. Caching
-    // avoids a GetModuleFileNameW + wstring alloc + GetFileAttributesW syscall
-    // every frame just to re-check a path that never changes.
+    // Cached directory of PDPerfPlugin.dll (resolved once). The DIAG_SOLID
+    // sentinel file (PD_FSR4_DIAG_SOLID) lives here. Caching avoids a
+    // GetModuleFileNameW + wstring alloc + GetFileAttributesW syscall every
+    // frame just to re-check a path that never changes.
     std::wstring dllDir;
     bool         dllDirResolved = false;
     void resolveDllDir() {
@@ -324,7 +318,6 @@ FSR4Backend::~FSR4Backend() {
         if (ctx.ffxCtx && m_impl->ffxDestroyContextFn)
             m_impl->ffxDestroyContextFn(&ctx.ffxCtx, nullptr);
         if (ctx.outputTexture) ctx.outputTexture->Release();
-        if (ctx.watermarkTex) ctx.watermarkTex->Release();
         if (ctx.solidTex) ctx.solidTex->Release();
     }
     m_impl->contexts.clear();
@@ -478,12 +471,10 @@ static FfxApiResource makeResource(ID3D12Resource* res, uint32_t state, uint32_t
 }
 
 // -----------------------------------------------------------------------
-// Verification watermark + DIAG solid texture
-// The texture-creation logic (incl. the proven DEFAULT-buffer->texture fill)
-// now lives in fsr4_overlay.cpp / fsr4_overlay.h so it can be debugged and
-// re-verified in isolation. See that file for the full rationale. The badge is
-// always drawn; the DIAG_SOLID full-frame overlay is compiled out under
-// -DFSR4_NO_WATERMARK.
+// DIAG solid texture
+// The texture-creation logic (the proven DEFAULT-buffer->texture fill) now
+// lives in fsr4_overlay.cpp / fsr4_overlay.h so it can be debugged and
+// re-verified in isolation. See that file for the full rationale.
 // -----------------------------------------------------------------------
 
 void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
@@ -529,6 +520,12 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     ctx.renderHeight = (int)(displaySizeY / scale + 0.5f);
 
     Logging::info("FSR4Backend: render=%dx%d upscale=%dx%d scale=%.2f",
+                  ctx.renderWidth, ctx.renderHeight, displaySizeX, displaySizeY, scale);
+
+    // Surface the active FSR version + quality + resolution scaling from the log
+    // (no on-screen watermark). One line: version | preset | render->upscale.
+    Logging::info("FSR4Backend: %s | quality=%s | render=%dx%d -> upscale=%dx%d (%.2fx)",
+                  ctx.fsrVersion, ctx.qualityName,
                   ctx.renderWidth, ctx.renderHeight, displaySizeX, displaySizeY, scale);
 
     uint32_t flags = 0;
@@ -819,7 +816,6 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
     // to return to normal FSR4. This is the ground-truth present-chain test:
     // if the screen turns green, our output texture IS what REFramework presents.
     // We log every step so a run with the file but no green is still conclusive.
-#ifndef FSR4_NO_WATERMARK
     {
         // Re-check the sentinel only a few times/sec (throttled) so toggling the
         // file still works without a restart, but we don't burn a GetFileAttributesW
@@ -888,117 +884,7 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             }
         }
     }
-#endif
 
-        // --- Verification watermark (if enabled) -----------------------------
-        // Draw a small "FSR4" badge into the output texture's top-left corner.
-        // The output is currently in UAV state from the dispatch; transition it
-        // to COPY_DEST, copy the badge, then back to UAV so REFramework's copier
-        // sees it in the expected state.
-        // Runtime kill-switch: drop a file named "PD_FSR4_NO_WATERMARK" next to
-        // the DLL to suppress the badge with NO recompile (mirrors the
-        // PD_FSR4_DIAG_SOLID sentinel). Useful for A/B perf comparisons.
-        {
-            // Runtime kill-switch: file "PD_FSR4_NO_WATERMARK" next to the DLL
-            // suppresses the badge with NO recompile. Poll a few times/sec only;
-            // dllDir is cached once so this is a single cheap GetFileAttributesW
-            // every ~250ms, not a GetModuleFileNameW + wstring alloc every frame.
-            static int s_lastWm = -1;
-            static long long s_lastWmPoll = 0;
-            long long nowWm = (long long)GetTickCount64();
-            if (nowWm - s_lastWmPoll > 250) {
-                s_lastWmPoll = nowWm;
-                m_impl->resolveDllDir();
-                bool wm_off = (GetFileAttributesW((m_impl->dllDir + L"\\PD_FSR4_NO_WATERMARK").c_str()) != INVALID_FILE_ATTRIBUTES);
-                if (wm_off != (s_lastWm == 1)) {
-                    s_lastWm = wm_off ? 1 : 0;
-                    Logging::info("FSR4Backend: watermark badge %s (sentinel=%ls\\PD_FSR4_NO_WATERMARK)",
-                                  wm_off ? "DISABLED via file" : "ENABLED", m_impl->dllDir.c_str());
-                }
-            }
-            bool wm_off = (s_lastWm == 1);
-            if (!wm_off && m_impl->device && effectiveDst) {
-                // Keep the badge in sync with the live quality level. REFramework
-                // can change quality (and rebuild the context) without our badge
-                // noticing, so refresh the cached name + rebuild the texture when
-                // the quality differs from what the badge currently shows.
-                const char* liveName = qualityLevelName(ctx.qualityLevel);
-                if (strcmp(liveName, ctx.qualityName) != 0) {
-                    _snprintf_s(ctx.qualityName, sizeof(ctx.qualityName), _TRUNCATE, "%s", liveName);
-                }
-                bool rebuild = (!ctx.watermarkTex) || (ctx.watermarkQuality != ctx.qualityLevel);
-                if (rebuild) {
-                    if (ctx.watermarkTex) { ctx.watermarkTex->Release(); ctx.watermarkTex = nullptr; }
-                    ctx.watermarkTex = Fsr4Overlay::createWatermarkTexture(m_impl->device, m_impl->commandQueue,
-                                                          ctx.watermarkW, ctx.watermarkH,
-                                                          (DXGI_FORMAT)ctx.format,
-                                                          ctx.fsrVersion, ctx.qualityName,
-                                                          ctx.displaySizeX, ctx.displaySizeY);
-                    ctx.watermarkQuality = ctx.qualityLevel;
-                    if (ctx.watermarkTex) {
-                        Logging::info("FSR4Backend: watermark texture created %dx%d (DEFAULT heap, COPY_SOURCE) — will be copied into output each frame",
-                                      ctx.watermarkW, ctx.watermarkH);
-                    } else {
-                        Logging::error("FSR4Backend: watermark texture creation FAILED (see Fsr4Overlay::createWatermarkTexture log above)");
-                    }
-                }
-                if (ctx.watermarkTex && ctx.watermarkW > 0 && ctx.watermarkH > 0) {
-                    ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
-                    D3D12_RESOURCE_BARRIER b = {};
-                    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                    b.Transition.pResource = (ID3D12Resource*)effectiveDst;
-                    b.Transition.Subresource = 0;
-                    b.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-                    b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
-                    cl->ResourceBarrier(1, &b);
-
-                    D3D12_TEXTURE_COPY_LOCATION dst = {};
-                    dst.pResource = (ID3D12Resource*)effectiveDst;
-                    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    dst.SubresourceIndex = 0;
-                    D3D12_TEXTURE_COPY_LOCATION src = {};
-                    src.pResource = ctx.watermarkTex;
-                    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    src.SubresourceIndex = 0;
-                    cl->CopyTextureRegion(&dst, 8, 8, 0, &src, nullptr);
-                    // CopyTextureRegion returns void; a format mismatch (the old bug)
-                    // would have surfaced as a device-removed error. Add a one-time
-                    // confirmation that the badge layout is valid.
-                    static bool s_badgeLogged = false;
-                    if (!s_badgeLogged) {
-                        s_badgeLogged = true;
-                        auto fmtName = [](int f) -> const char* {
-                            switch (f) {
-                                case 28: return "R8G8B8A8_UNORM"; case 27: return "R8G8B8A8_TYPELESS";
-                                case 87: return "B8G8R8A8_UNORM"; case 90: return "B8G8R8A8_TYPELESS";
-                                case 24: return "R10G10B10A2_UNORM"; case 23: return "R10G10B10A2_TYPELESS";
-                                case 10: return "R16G16B16A16_FLOAT"; case 9: return "R16G16B16A16_TYPELESS";
-                                default: return "OTHER/UNHANDLED";
-                            }
-                        };
-                        ID3D12Resource* outRes = (ID3D12Resource*)effectiveDst;
-                        int outFmt = outRes ? (int)outRes->GetDesc().Format : -1;
-                        int outW = outRes ? (int)outRes->GetDesc().Width : -1;
-                        int outH = outRes ? (int)outRes->GetDesc().Height : -1;
-                        int badgeFmt = (int)ctx.watermarkTex->GetDesc().Format;
-                        int badgeW = (int)ctx.watermarkTex->GetDesc().Width;
-                        int badgeH = (int)ctx.watermarkTex->GetDesc().Height;
-                        int outTexW = ctx.outputTexture ? (int)((ID3D12Resource*)ctx.outputTexture)->GetDesc().Width : -1;
-                        int outTexH = ctx.outputTexture ? (int)((ID3D12Resource*)ctx.outputTexture)->GetDesc().Height : -1;
-                        Logging::info("FSR4Backend: watermark fmt diag -> ctx.format=%d(%s) effectiveDst=%d(%s) %dx%d badge=%d(%s) %dx%d | match(outsrc=%s) disp=%dx%d outTex=%dx%d",
-                                      ctx.format, fmtName(ctx.format),
-                                      outFmt, fmtName(outFmt), outW, outH,
-                                      badgeFmt, fmtName(badgeFmt), badgeW, badgeH,
-                                      (outFmt == badgeFmt) ? "YES" : "NO",
-                                      ctx.displaySizeX, ctx.displaySizeY, outTexW, outTexH);
-                    }
-
-                    b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-                    b.Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-                    cl->ResourceBarrier(1, &b);
-                }
-            }
-        }
 
     } catch (const std::exception& e) {
         Logging::error("FSR4Backend: ffxDispatch exception: %s", e.what());

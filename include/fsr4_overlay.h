@@ -1,7 +1,6 @@
 // fsr4_overlay.h
 // ---------------------------------------------------------------------------
-// Standalone, easily-debuggable helpers for the FSR4 output "overlay":
-//   * the verification watermark ("FSR4" badge) -- createWatermarkTexture()
+// Standalone, easily-debuggable helpers for the FSR4 output overlay:
 //   * the full-frame solid-green DIAG texture (PD_FSR4_DIAG_SOLID) -- createSolidTexture()
 //
 // WHY THIS IS A SEPARATE FILE
@@ -16,6 +15,9 @@
 //     BUFFER (format-agnostic, so no R10G10B10A2 restriction) <-- Map.
 //   Keeping this in its own TU makes it trivial to unit-test and to re-verify
 //   whenever a new REFramework / FidelityFX SDK release changes the output format.
+//
+// (The on-screen verification watermark was removed; FSR version + resolution
+// scaling are reported from the log instead. See FSR4Backend::createContext.)
 //
 // Requires LOGGING via the plugin's Logging::info/error (Logging.h).
 // ---------------------------------------------------------------------------
@@ -47,26 +49,10 @@ ID3D12Resource* createSolidTexture(ID3D12Device* dev,
 // given command list. Uses a BUFFER placed-footprint source so the partial,
 // offset copy is VALID (texture->texture CopyTextureRegion ignores DstX/Y and
 // requires identical sizes -- which would scramble a larger destination).
+// (Unused by the current mod; kept for potential partial-overlay experiments.)
 void blitToOutput(ID3D12GraphicsCommandList* cl,
                   ID3D12Resource* dst, int dstW, int dstH,
                   ID3D12Resource* src, int srcW, int srcH,
                   int destX, int destY, DXGI_FORMAT fmt);
-
-// Verification watermark texture. Renders a two-line badge so the on-screen
-// overlay reports what the mod is actually running:
-//   line 1: the FSR version string (e.g. "FSR4 V4.1.1")
-//   line 2: the upscaling quality level (e.g. "ULTRA PERFORMANCE")
-// `fsrVersion` and `qualityLevelName` are plain ASCII passed in by the caller
-// (they are formatted from FFX_UPSCALER_VERSION and the quality enum in the
-// backend). `dispW`/`dispH` are the OUTPUT backbuffer size; the badge is
-// scaled relative to them so it stays a readable fraction of screen height on
-// 1080p, 1440p, and 4K. Writes outW/outH.
-ID3D12Resource* createWatermarkTexture(ID3D12Device* dev,
-                                       ID3D12CommandQueue* queue,
-                                       int& outW, int& outH,
-                                       DXGI_FORMAT targetFmt,
-                                       const char* fsrVersion,
-                                       const char* qualityLevelName,
-                                       int dispW, int dispH);
 
 } // namespace Fsr4Overlay
