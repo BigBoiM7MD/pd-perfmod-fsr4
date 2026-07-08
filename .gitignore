@@ -21,6 +21,9 @@ out/
 # Local backups (timestamped, for local rollback only)
 backup_*/
 
+# Release drop (build artifact; regenerable from source + tag, do not commit)
+release/
+
 # FidelityFX SDK (644M, fetched separately; never commit)
 FidelityFX-SDK/
 
