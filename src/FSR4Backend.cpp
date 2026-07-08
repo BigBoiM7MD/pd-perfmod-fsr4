@@ -87,13 +87,6 @@ static constexpr uint32_t FFX_RESOURCE_USAGE_RENDERTARGET = (1u << 0);  // 1
 static constexpr uint32_t FFX_RESOURCE_USAGE_UAV          = (1u << 1);  // 2
 static constexpr uint32_t FFX_RESOURCE_USAGE_DEPTHTARGET  = (1u << 2);  // 4
 
-// FFX resource type (FfxApiResourceType, ffx_api_types.h) -- a SEQUENTIAL enum
-// with DIFFERENT numeric values from D3D12_RESOURCE_DIMENSION. Must be mapped.
-static constexpr uint32_t FFX_API_RESOURCE_TYPE_BUFFER    = 0;
-static constexpr uint32_t FFX_API_RESOURCE_TYPE_TEXTURE1D  = 1;
-static constexpr uint32_t FFX_API_RESOURCE_TYPE_TEXTURE2D  = 2;
-static constexpr uint32_t FFX_API_RESOURCE_TYPE_TEXTURE3D  = 4;
-
 // -----------------------------------------------------------------------
 // Descriptor structs  (exact layout from SDK headers – no manual padding)
 // -----------------------------------------------------------------------
@@ -222,6 +215,7 @@ struct UpscaleContext {
 
     ffxContext        ffxCtx         = nullptr;
     ID3D12Resource*   outputTexture  = nullptr;
+    ID3D12Device*     device         = nullptr;
 
     int   renderWidth  = 0;
     int   renderHeight = 0;
@@ -382,36 +376,17 @@ static FfxApiResource makeResource(ID3D12Resource* res, uint32_t state, uint32_t
         else if (fmt == 27) fmt = 28;  // R8G8B8A8_TYPELESS -> UNORM
         else if (fmt == 53) fmt = 54;  // R16G16_TYPELESS -> FLOAT
         else if (fmt == 59) fmt = 41;  // R32_TYPELESS -> R32_FLOAT
-        // Map D3D12_RESOURCE_DIMENSION (BUFFER=1,T1D=2,T2D=3,T3D=4) to
-        // FFX_API_RESOURCE_TYPE_* (BUFFER=0,T1D=1,T2D=2,T3D=4). The raw D3D12
-        // value is NOT the FFX enum: passing 3 would be read as a cube map.
-        uint32_t ffxType;
-        switch ((int)d.Dimension) {
-            case 1: ffxType = FFX_API_RESOURCE_TYPE_BUFFER;    break;
-            case 2: ffxType = FFX_API_RESOURCE_TYPE_TEXTURE1D;  break;
-            case 3: ffxType = FFX_API_RESOURCE_TYPE_TEXTURE2D;  break;
-            case 4: ffxType = FFX_API_RESOURCE_TYPE_TEXTURE3D;  break;
-            default: ffxType = FFX_API_RESOURCE_TYPE_TEXTURE2D; break;
-        }
-        r.description.type    = ffxType;
+        r.description.type    = (uint32_t)d.Dimension;
         r.description.format  = fmt;
         r.description.width   = (uint32_t)d.Width;
         r.description.height  = d.Height;
         r.description.depth   = d.DepthOrArraySize;
         r.description.mipCount = d.MipLevels;
-        // description.flags is FfxApiResourceFlags (aliasable/undefined), NOT
-        // D3D12_RESOURCE_FLAGS. Leave 0. The FFX usage is the `usage` arg the
-        // caller already supplies (READ_ONLY / UAV / DEPTHTARGET) -- do NOT OR
-        // in d.Flags (a different enum space; e.g. D3D12 ALLOW_UAV=0x8).
         r.description.flags   = 0;
-        r.description.usage   = usage;
+        r.description.usage   = (uint32_t)d.Flags | usage;
     }
     return r;
 }
-
-// -----------------------------------------------------------------------
-// Context creation / upscaler setup
-// -----------------------------------------------------------------------
 
 void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
                                   int displaySizeX, int displaySizeY,
@@ -438,6 +413,7 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     ctx.motionVectorsJittered = motionVectorsJittered;
     ctx.enableSharpening      = enableSharpening;
     ctx.enableAutoExposure    = enableAutoExposure;
+    ctx.device                = m_impl->device;
 
     float scale;
     switch (qualityLevel) {
