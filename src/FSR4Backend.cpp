@@ -1,6 +1,5 @@
 #include "../include/FSR4Backend.h"
 #include "../include/Logging.h"
-#include "../include/fsr4_overlay.h"
 #include "../include/PDPerfPlugin.h"
 
 #include <d3d12.h>
@@ -206,36 +205,6 @@ static_assert(sizeof(ffxDispatchDescUpscale) == 432, "DispatchDesc size");
 static_assert(sizeof(ffxCreateContextDescUpscale) == 48, "CreateDesc size");
 
 // -----------------------------------------------------------------------
-// Version / quality helper strings (logged from createContext)
-// -----------------------------------------------------------------------
-
-// Decode FFX_UPSCALER_VERSION (packed as (major<<22)|(minor<<12)|patch) into
-// "FSR4 Vx.y.z". The major is fixed at 4 by the mod's contract (FFX 4.x = FSR4).
-static void formatFsrVersion(char* buf, size_t n) {
-    uint32_t v = FFX_UPSCALER_VERSION;
-    int major = (int)((v >> 22) & 0x3FF);
-    int minor = (int)((v >> 12) & 0x3FF);
-    int patch = (int)(v & 0xFFF);
-    _snprintf_s(buf, n, _TRUNCATE, "FSR4 V%d.%d.%d", major, minor, patch);
-}
-
-// Map REFramework's QualityLevel dropdown index to the FSR preset name shown
-// on the badge. This is the EXACT ordering REFramework exposes in the
-// TemporalUpscaler "Quality Level" dropdown (see UpscaleQuality enum):
-//   0 = Native (1:1, no upscaling), 1 = Ultra Quality(1.3x), 2 = Quality(1.5x),
-//   3 = Balanced(1.7x), 4 = Performance(2.0x). Anything else => CUSTOM.
-static const char* qualityLevelName(int qualityLevel) {
-    switch (qualityLevel) {
-        case 0: return "NATIVE";
-        case 1: return "ULTRA QUALITY";
-        case 2: return "QUALITY";
-        case 3: return "BALANCED";
-        case 4: return "PERFORMANCE";
-        default: return "CUSTOM";
-    }
-}
-
-// -----------------------------------------------------------------------
 // Per-context state
 // -----------------------------------------------------------------------
 struct UpscaleContext {
@@ -254,13 +223,6 @@ struct UpscaleContext {
     ffxContext        ffxCtx         = nullptr;
     ID3D12Resource*   outputTexture  = nullptr;
 
-    // FSR version + quality preset strings (logged from createContext; no
-    // on-screen watermark anymore).
-    char              fsrVersion[32] = {0};
-    char              qualityName[32]= {0};
-    ID3D12Resource*   solidTex       = nullptr; // PD_FSR4_DIAG_SOLID test texture
-    ID3D12Device*     device         = nullptr;
-
     int   renderWidth  = 0;
     int   renderHeight = 0;
     float motionScaleX = 1.0f;
@@ -269,7 +231,6 @@ struct UpscaleContext {
 
 struct FSR4Backend::Impl {
     HMODULE hLoaderDll = nullptr;
-    HMODULE hInstance  = nullptr; // PDPerfPlugin.dll handle (for DIAG_SOLID sentinel)
     PFN_ffxCreateContext  ffxCreateContextFn  = nullptr;
     PFN_ffxDestroyContext ffxDestroyContextFn = nullptr;
     PFN_ffxDispatch       ffxDispatchFn       = nullptr;
@@ -287,24 +248,6 @@ struct FSR4Backend::Impl {
     HANDLE                     fenceEvent = nullptr;
     uint64_t                   fenceValue = 0;
 
-    // Cached directory of PDPerfPlugin.dll (resolved once). The DIAG_SOLID
-    // sentinel file (PD_FSR4_DIAG_SOLID) lives here. Caching avoids a
-    // GetModuleFileNameW + wstring alloc + GetFileAttributesW syscall every
-    // frame just to re-check a path that never changes.
-    std::wstring dllDir;
-    bool         dllDirResolved = false;
-    void resolveDllDir() {
-        if (dllDirResolved) return;
-        dllDirResolved = true;
-        HMODULE hmod = hInstance ? hInstance : GetModuleHandleW(L"PDPerfPlugin.dll");
-        if (!hmod) hmod = GetModuleHandleW(nullptr);
-        wchar_t dllPath[MAX_PATH] = {};
-        if (hmod) GetModuleFileNameW(hmod, dllPath, MAX_PATH);
-        std::wstring d = dllPath;
-        auto pos = d.find_last_of(L"\\/");
-        dllDir = (pos == std::wstring::npos) ? L"." : d.substr(0, pos);
-    }
-
     std::unordered_map<int, UpscaleContext> contexts;
 };
 
@@ -318,7 +261,6 @@ FSR4Backend::~FSR4Backend() {
         if (ctx.ffxCtx && m_impl->ffxDestroyContextFn)
             m_impl->ffxDestroyContextFn(&ctx.ffxCtx, nullptr);
         if (ctx.outputTexture) ctx.outputTexture->Release();
-        if (ctx.solidTex) ctx.solidTex->Release();
     }
     m_impl->contexts.clear();
     if (m_impl->cmdList)  m_impl->cmdList->Release();
@@ -342,9 +284,6 @@ static void messageCallback(uint32_t type, const wchar_t* message) {
 bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
     Logging::info("FSR4Backend::setup(graphicsAPI=%d)", graphicsAPI);
     m_impl->graphicsAPI = graphicsAPI;
-    // Cache our own module handle so the DIAG_SOLID sentinel file can be found
-    // next to PDPerfPlugin.dll regardless of the process' current directory.
-    if (!m_impl->hInstance) m_impl->hInstance = GetModuleHandleW(L"PDPerfPlugin.dll");
     if (graphicsAPI == 0) {
         Logging::warn("FSR4Backend: D3D11 not supported, need D3D12");
         return false;
@@ -471,10 +410,7 @@ static FfxApiResource makeResource(ID3D12Resource* res, uint32_t state, uint32_t
 }
 
 // -----------------------------------------------------------------------
-// DIAG solid texture
-// The texture-creation logic (the proven DEFAULT-buffer->texture fill) now
-// lives in fsr4_overlay.cpp / fsr4_overlay.h so it can be debugged and
-// re-verified in isolation. See that file for the full rationale.
+// Context creation / upscaler setup
 // -----------------------------------------------------------------------
 
 void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
@@ -502,11 +438,6 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     ctx.motionVectorsJittered = motionVectorsJittered;
     ctx.enableSharpening      = enableSharpening;
     ctx.enableAutoExposure    = enableAutoExposure;
-    ctx.device                = m_impl->device;
-
-    formatFsrVersion(ctx.fsrVersion, sizeof(ctx.fsrVersion));
-    _snprintf_s(ctx.qualityName, sizeof(ctx.qualityName), _TRUNCATE, "%s",
-                qualityLevelName(qualityLevel));
 
     float scale;
     switch (qualityLevel) {
@@ -520,12 +451,6 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     ctx.renderHeight = (int)(displaySizeY / scale + 0.5f);
 
     Logging::info("FSR4Backend: render=%dx%d upscale=%dx%d scale=%.2f",
-                  ctx.renderWidth, ctx.renderHeight, displaySizeX, displaySizeY, scale);
-
-    // Surface the active FSR version + quality + resolution scaling from the log
-    // (no on-screen watermark). One line: version | preset | render->upscale.
-    Logging::info("FSR4Backend: %s | quality=%s | render=%dx%d -> upscale=%dx%d (%.2fx)",
-                  ctx.fsrVersion, ctx.qualityName,
                   ctx.renderWidth, ctx.renderHeight, displaySizeX, displaySizeY, scale);
 
     uint32_t flags = 0;
@@ -808,83 +733,6 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
                               ctx.enableSharpening ? "ON" : "off", dd.sharpness);
             }
         }
-
-    // --- Decisive present-chain diagnostic (sentinel FILE, no env-var/quoting) --
-    // Drop a file named "PD_FSR4_DIAG_SOLID" next to the DLL (in the game dir,
-    // where PDPerfPlugin.dll lives) to engage solid-green mode. NO recompile,
-    // NO Steam launch options, NO env-var propagation needed. Delete the file
-    // to return to normal FSR4. This is the ground-truth present-chain test:
-    // if the screen turns green, our output texture IS what REFramework presents.
-    // We log every step so a run with the file but no green is still conclusive.
-    {
-        // Re-check the sentinel only a few times/sec (throttled) so toggling the
-        // file still works without a restart, but we don't burn a GetFileAttributesW
-        // syscall + wstring alloc every frame. dllDir is cached once at setup.
-        static int s_lastMode = -1;
-        static long long s_lastPoll = 0;
-        long long nowPoll = (long long)GetTickCount64();
-        if (nowPoll - s_lastPoll > 250) {
-            s_lastPoll = nowPoll;
-            m_impl->resolveDllDir();
-            std::wstring sentinel = m_impl->dllDir + L"\\PD_FSR4_DIAG_SOLID";
-            bool on = (GetFileAttributesW(sentinel.c_str()) != INVALID_FILE_ATTRIBUTES);
-            if (on != (s_lastMode == 1)) {
-                s_lastMode = on ? 1 : 0;
-                Logging::info("FSR4Backend: DIAG_SOLID mode %s (sentinel=%ls)",
-                              on ? "ON — painting output GREEN" : "OFF — normal FSR4",
-                              sentinel.c_str());
-            }
-            if (on) {
-                if (!ctx.solidTex) {
-                    ctx.solidTex = Fsr4Overlay::createSolidTexture(m_impl->device, m_impl->commandQueue, ctx.displaySizeX,
-                                                  ctx.displaySizeY, (DXGI_FORMAT)ctx.format,
-                                                  0xC00FFC00); // opaque GREEN in R10G10B10A2
-                    Logging::info("FSR4Backend: DIAG_SOLID created solidTex=%p", (void*)ctx.solidTex);
-                }
-                if (ctx.solidTex && effectiveCmdList && effectiveDst) {
-                    ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
-                    D3D12_RESOURCE_BARRIER b = {};
-                    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                    b.Transition.pResource = (ID3D12Resource*)effectiveDst;
-                    b.Transition.Subresource = 0;
-                    b.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-                    b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
-                    cl->ResourceBarrier(1, &b);
-                    D3D12_TEXTURE_COPY_LOCATION dst = {}, src = {};
-                    dst.pResource = (ID3D12Resource*)effectiveDst;
-                    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    dst.SubresourceIndex = 0;
-                    src.pResource = ctx.solidTex;
-                    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    src.SubresourceIndex = 0;
-                    cl->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-                    b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-                    b.Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-                    cl->ResourceBarrier(1, &b);
-                    static long long s_last = 0;
-                    long long now = (long long)GetTickCount64();
-                    if (now - s_last > 2000) {
-                        s_last = now;
-                        Logging::info("FSR4Backend: DIAG_SOLID painted output GREEN (out=%p cmdList=%p)",
-                                      effectiveDst, effectiveCmdList);
-                    }
-                }
-                // Submit the internal command list if REFramework handed us none
-                // (otherwise the green copy above is recorded but never executed).
-                if (!cmdList && effectiveCmdList && m_impl->commandQueue) {
-                    ID3D12GraphicsCommandList* cl2 = (ID3D12GraphicsCommandList*)effectiveCmdList;
-                    cl2->Close();
-                    ID3D12CommandList* lists[] = { cl2 };
-                    m_impl->commandQueue->ExecuteCommandLists(1, lists);
-                    // Signal for allocator lifetime only — no per-frame CPU stall
-                    // (see normal path below for rationale).
-                    m_impl->commandQueue->Signal(m_impl->fence, ++m_impl->fenceValue);
-                    return; // skip FSR4 entirely in solid mode
-                }
-            }
-        }
-    }
-
 
     } catch (const std::exception& e) {
         Logging::error("FSR4Backend: ffxDispatch exception: %s", e.what());
