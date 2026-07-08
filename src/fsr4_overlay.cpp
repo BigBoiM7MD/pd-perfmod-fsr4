@@ -4,24 +4,32 @@
 //   DEFAULT-heap texture (COPY_DEST) <-- CopyTextureRegion <-- UPLOAD-heap
 //   BUFFER (format-agnostic) <-- Map. No UPLOAD-heap R10G10B10A2 textures,
 //   no WriteToSubresource. Validated end-to-end on D3D12 WARP.
-#include "../include/fsr4_overlay.h"
-#include "../include/Logging.h"
+//
+// COLOR FORMAT NOTE (the "blue field" bug):
+//   The output backbuffer format is chosen by the game/REFramework at runtime
+//   and handed to us as `ctx.format`. We MUST pack our badge pixels into that
+//   SAME format. The previous code hardcoded an R10G10B10A2 byte layout and a
+//   fixed 4-byte/px stride, so under the game's actual R8G8B8A8_UNORM output
+//   the panel color 0xEE101010 was read as bytes (R=0x10,G=0x10,B=0xEE) -> a
+//   SOLID BLUE rectangle instead of dark gray. All color packing below is now
+//   format-aware via packColor()/formatBpp().
+#include "..\include\fsr4_overlay.h"
+#include "..\include\Logging.h"
 
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <vector>
 #include <cstring>
-#include <windows.h>
+#include <cstdint>
+#include <cstdlib>
 
 namespace Fsr4Overlay {
 
 // ---------------------------------------------------------------------------
 // 5x7 bitmap font. Each glyph is 7 rows; each row byte has bit0 = LEFT-most
-// column, bit4 = RIGHT-most column (the renderer in drawString() reads
-// (bits >> col) & 1 with col 0..4, so this convention is what paints the
-// glyph correctly WITHOUT mirroring). A '?' placeholder covers any char we
-// didn't encode. This is the classic "5x7 dot-matrix" reference font, verified
-// by the ad-hoc ASCII render harness (see commit that adds it).
+// column, bit4 = RIGHT-most column (the renderer in drawStringScaled() reads
+// (bits >> col) & 1 with col 0..4). A '?' placeholder covers any char we
+// didn't encode. This is the classic "5x7 dot-matrix" reference font.
 // ---------------------------------------------------------------------------
 static const uint8_t FONT[][7] = {
 /* space */ {0x00,0x00,0x00,0x00,0x00,0x00,0x00},
@@ -128,14 +136,68 @@ static int fontIndexFor(char c) {
     return (int)(u - 0x20);
 }
 
-// Stamp `str` into px (a w x h R10G10B10A2 buffer) starting at (x0,y0), in
-// `color`. Each 5x7 glyph pixel is expanded to `scale`x`scale` blocks so the
-// badge stays legible when copied 1:1 into a full-resolution backbuffer.
-// Bit0 of a row byte is column 0 (left), so we test (bits >> col) & 1.
-// Out-of-range writes are clipped. Returns the x just past the last glyph.
-static int drawStringScaled(std::vector<uint32_t>& px, int w, int h, int x0, int y0,
-                            const char* str, uint32_t color, int scale) {
-    if (!str || scale < 1) return x0;
+// ---------------------------------------------------------------------------
+// Format-aware pixel packing. The badge textures are created with the SAME
+// DXGI_FORMAT as the game output, so we must lay out each pixel in that
+// format's byte order. Returns bytes-per-pixel for the common display formats
+// (everything else is conservatively treated as 4).
+// ---------------------------------------------------------------------------
+static int formatBpp(DXGI_FORMAT fmt) {
+    switch (fmt) {
+        case 28: case 27: case 87: case 90: case 24: case 23: // R8G8B8A8(_TYPED/LESS), B8G8R8A8(_TYPED/LESS), R10G10B10A2(_TYPED/LESS)
+            return 4;
+        case 10: case 9: // R16G16B16A16_FLOAT / _TYPELESS
+            return 8;
+        default:
+            return 4;
+    }
+}
+
+// Map TYPLESS display enums to their concrete format, mirroring makeResource()
+// in FSR4Backend.cpp (23->24 R10G10B10A2, 27->28 R8G8B8A8, 9->10 R16G16B16A16).
+static DXGI_FORMAT resolveFormat(DXGI_FORMAT fmt) {
+    switch ((int)fmt) {
+        case 23: return (DXGI_FORMAT)24;
+        case 27: return (DXGI_FORMAT)28;
+        case 9:  return (DXGI_FORMAT)10;
+        default: return fmt;
+    }
+}
+
+// Pack (r,g,b,a) in 0..255 into `out` (max 8 bytes) for `fmt`.
+static void packColor(DXGI_FORMAT fmt, uint8_t out[8], uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    memset(out, 0, 8);
+    switch (resolveFormat(fmt)) {
+        case 87: case 90: // B8G8R8A8(_TYPED/LESS): byte order B,G,R,A
+            out[0] = b; out[1] = g; out[2] = r; out[3] = a; break;
+        case 24: { // R10G10B10A2_UNORM(_TYPED/LESS)
+            uint32_t r10 = (uint32_t)((r * 1023 + 128) / 255);
+            uint32_t g10 = (uint32_t)((g * 1023 + 128) / 255);
+            uint32_t b10 = (uint32_t)((b * 1023 + 128) / 255);
+            uint32_t a2  = (uint32_t)((a * 3    + 128) / 255);
+            uint32_t u = (a2 << 30) | (b10 << 20) | (g10 << 10) | r10;
+            memcpy(out, &u, 4); // little-endian: byte0 = R low bits
+            break;
+        }
+        case 10: case 9: { // R16G16B16A16_FLOAT / _TYPELESS (store as UNORM16)
+            uint16_t c[4] = { (uint16_t)(r * 257), (uint16_t)(g * 257),
+                              (uint16_t)(b * 257), (uint16_t)(a * 257) };
+            memcpy(out, c, 8);
+            break;
+        }
+        default: // R8G8B8A8(_TYPED/LESS) and everything else: R,G,B,A
+            out[0] = r; out[1] = g; out[2] = b; out[3] = a; break;
+    }
+}
+
+// Stamp `str` into px (a w x h buffer of `bpp`-byte pixels) starting at (x0,y0),
+// in `color` (already packed for the target format, `bpp` bytes). Each 5x7
+// glyph pixel is expanded to `scale`x`scale` blocks so the badge stays legible
+// when copied 1:1 into a full-resolution backbuffer. Bit0 of a row byte is
+// column 0 (left), so we test (bits >> col) & 1. Out-of-range writes clipped.
+static void drawStringScaled(std::vector<uint8_t>& px, int w, int h, int x0, int y0,
+                             const char* str, const uint8_t* color, int bpp, int scale) {
+    if (!str || scale < 1) return;
     int x = x0;
     for (const char* p = str; *p; ++p) {
         const uint8_t* g = FONT[fontIndexFor(*p)];
@@ -147,8 +209,10 @@ static int drawStringScaled(std::vector<uint32_t>& px, int w, int h, int x0, int
                         int gy = y0 + row * scale + dy;
                         for (int dx = 0; dx < scale; ++dx) {
                             int gx = x + col * scale + dx;
-                            if (gx >= 0 && gx < w && gy >= 0 && gy < h)
-                                px[(size_t)gy * w + gx] = color;
+                            if (gx >= 0 && gx < w && gy >= 0 && gy < h) {
+                                size_t off = ((size_t)gy * w + gx) * bpp;
+                                memcpy(&px[off], color, bpp);
+                            }
                         }
                     }
                 }
@@ -156,7 +220,6 @@ static int drawStringScaled(std::vector<uint32_t>& px, int w, int h, int x0, int
         }
         x += 6 * scale; // 5px glyph + 1px gap, scaled
     }
-    return x;
 }
 
 // Core: fill a DEFAULT-heap texture from CPU pixels via UPLOAD buffer + copy.
@@ -164,14 +227,15 @@ ID3D12Resource* createTexFromPixels(ID3D12Device* dev,
                                      ID3D12CommandQueue* queue,
                                      int w, int h,
                                      DXGI_FORMAT targetFmt,
-                                     const std::vector<uint32_t>& px) {
+                                     const std::vector<uint8_t>& px) {
     if (!dev || !queue) {
         Logging::error("Fsr4Overlay: createTexFromPixels null dev/queue");
         return nullptr;
     }
-    if ((int)px.size() < w * h) {
+    int bpp = formatBpp(targetFmt);
+    if ((int)px.size() < w * h * bpp) {
         Logging::error("Fsr4Overlay: createTexFromPixels px too small (%zu < %d)",
-                       (size_t)px.size(), w * h);
+                       (size_t)px.size(), w * h * bpp);
         return nullptr;
     }
 
@@ -196,13 +260,14 @@ ID3D12Resource* createTexFromPixels(ID3D12Device* dev,
     }
 
     // Staging BUFFER in an UPLOAD heap. Buffers have NO format restriction, so
-    // this works even when targetFmt (R10G10B10A2) would be illegal in an
-    // UPLOAD *texture*. Size it as RowPitch*Height (256-byte row alignment),
-    // NOT the tight size GetCopyableFootprints may report for totalBytes.
+    // this works even when targetFmt would be illegal in an UPLOAD *texture*.
+    // Size it as RowPitch*Height (256-byte row alignment), NOT the tight size
+    // GetCopyableFootprints may report for totalBytes.
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT foot = {};
     UINT rowBytes = 0; UINT64 totalBytes = 0;
     dev->GetCopyableFootprints(&desc, 0, 1, 0, &foot, &rowBytes, &totalBytes, nullptr);
     const UINT footRow = foot.Footprint.RowPitch;
+    const UINT tightRow = (UINT)w * bpp;
     const UINT64 bufSize = (UINT64)footRow * h;
 
     D3D12_RESOURCE_DESC bdesc = {};
@@ -230,10 +295,9 @@ ID3D12Resource* createTexFromPixels(ID3D12Device* dev,
         staging->Release(); tex->Release();
         return nullptr;
     }
-    const UINT tightRow = (UINT)w * 4; // R10G10B10A2 = 4 bytes/px
     for (int y = 0; y < h; ++y) {
         memcpy((uint8_t*)mapped + (size_t)y * footRow,
-               px.data() + (size_t)y * w, (size_t)tightRow);
+               px.data() + (size_t)y * w * bpp, (size_t)tightRow);
     }
     staging->Unmap(0, nullptr);
 
@@ -285,9 +349,18 @@ ID3D12Resource* createTexFromPixels(ID3D12Device* dev,
     return tex;
 }
 
+// Fill an entire w x h texture with one packed color (used by DIAG_SOLID).
+// `colorArgb` is 0xAARRGGBB for readability at the call site; it is repacked
+// into the real output format before upload.
 ID3D12Resource* createSolidTexture(ID3D12Device* dev, ID3D12CommandQueue* queue,
-                                    int w, int h, DXGI_FORMAT targetFmt, uint32_t color) {
-    std::vector<uint32_t> px((size_t)w * h, color);
+                                    int w, int h, DXGI_FORMAT targetFmt, uint32_t colorArgb) {
+    int bpp = formatBpp(targetFmt);
+    uint8_t c[8];
+    packColor(targetFmt, c,
+              (uint8_t)(colorArgb >> 16), (uint8_t)(colorArgb >> 8),
+              (uint8_t)(colorArgb),       (uint8_t)(colorArgb >> 24));
+    std::vector<uint8_t> px((size_t)w * h * bpp, 0);
+    for (size_t i = 0; i < (size_t)w * h; ++i) memcpy(&px[i * bpp], c, bpp);
     return createTexFromPixels(dev, queue, w, h, targetFmt, px);
 }
 
@@ -297,17 +370,20 @@ ID3D12Resource* createWatermarkTexture(ID3D12Device* dev, ID3D12CommandQueue* qu
     // Two-line badge: line 1 = FSR version, line 2 = upscaling quality level.
     // Glyphs are scaled up (SCALE x) so the badge stays readable when copied
     // 1:1 into a full-res backbuffer (5px text is invisible on 1080p+). A solid
-    // dark panel sits behind the text for contrast over any scene — the
-    // standard verification-watermark look.
+    // dark panel sits behind the text for contrast over any scene. Colors are
+    // packed for the game's ACTUAL output format (see packColor) so the panel
+    // really is dark gray, not a blue field.
     const int SCALE = 3;
     const int GLYPH_W = 5 * SCALE;        // 15px per glyph cell (incl. 1px gap)
     const int GLYPH_H = 7 * SCALE;        // 21px per line
     const int PAD     = 8 * SCALE;        // 24px inner padding
     const int LINE_GAP = 6 * SCALE;       // 18px between the two lines
-    const uint32_t TEXT  = 0xC00FFC00;    // ABGR opaque GREEN (R10G10B10A2)
-    const uint32_t PANEL = 0xEE101010;    // ABGR near-opaque dark backing
+    const int bpp = formatBpp(targetFmt);
+    uint8_t PANEL[8], TEXT[8];
+    packColor(targetFmt, PANEL, 18, 18, 18, 235); // near-opaque dark gray
+    packColor(targetFmt, TEXT,   0, 255, 0, 255); // opaque green
 
-    auto lineWidth = [&](const char* s) -> int {
+    auto lineWidth = [GLYPH_W](const char* s) -> int {
         int n = s ? (int)strlen(s) : 0;
         return n > 0 ? n * GLYPH_W : 0;
     };
@@ -317,13 +393,14 @@ ID3D12Resource* createWatermarkTexture(ID3D12Device* dev, ID3D12CommandQueue* qu
     int w = wText + PAD * 2;
     int h = PAD * 2 + GLYPH_H * 2 + LINE_GAP;
 
-    std::vector<uint32_t> px((size_t)w * h, PANEL);
+    std::vector<uint8_t> px((size_t)w * h * bpp, 0);
+    for (size_t i = 0; i < (size_t)w * h; ++i) memcpy(&px[i * bpp], PANEL, bpp);
 
-    // Line 1 (FSR version) and line 2 (quality preset), vertically centered.
+    // Line 1 (FSR version) and line 2 (quality preset), top-aligned in padding.
     int y1 = PAD;
     int y2 = PAD + GLYPH_H + LINE_GAP;
-    drawStringScaled(px, w, h, PAD, y1, fsrVersion,         TEXT, SCALE);
-    drawStringScaled(px, w, h, PAD, y2, qualityLevelName,   TEXT, SCALE);
+    drawStringScaled(px, w, h, PAD, y1, fsrVersion,       TEXT, bpp, SCALE);
+    drawStringScaled(px, w, h, PAD, y2, qualityLevelName, TEXT, bpp, SCALE);
 
     ID3D12Resource* tex = createTexFromPixels(dev, queue, w, h, targetFmt, px);
     if (tex) { outW = w; outH = h; }
