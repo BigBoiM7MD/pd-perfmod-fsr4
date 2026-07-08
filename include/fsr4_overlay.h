@@ -43,10 +43,18 @@ ID3D12Resource* createSolidTexture(ID3D12Device* dev,
                                     DXGI_FORMAT targetFmt,
                                     uint32_t color);
 
-// "FSR4" badge texture (verification watermark). Writes outW/outH.
+// Verification watermark texture. Renders a two-line badge so the on-screen
+// overlay reports what the mod is actually running:
+//   line 1: the FSR version string (e.g. "FSR4 V4.1.1")
+//   line 2: the upscaling quality level (e.g. "ULTRA PERFORMANCE")
+// `fsrVersion` and `qualityLevelName` are plain ASCII passed in by the caller
+// (they are formatted from FFX_UPSCALER_VERSION and the quality enum in the
+// backend). Writes outW/outH.
 ID3D12Resource* createWatermarkTexture(ID3D12Device* dev,
                                        ID3D12CommandQueue* queue,
                                        int& outW, int& outH,
-                                       DXGI_FORMAT targetFmt);
+                                       DXGI_FORMAT targetFmt,
+                                       const char* fsrVersion,
+                                       const char* qualityLevelName);
 
 } // namespace Fsr4Overlay

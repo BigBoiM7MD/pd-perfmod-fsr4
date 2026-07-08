@@ -206,6 +206,34 @@ static_assert(sizeof(ffxDispatchDescUpscale) == 432, "DispatchDesc size");
 static_assert(sizeof(ffxCreateContextDescUpscale) == 48, "CreateDesc size");
 
 // -----------------------------------------------------------------------
+// Watermark helper strings
+// -----------------------------------------------------------------------
+
+// Decode FFX_UPSCALER_VERSION (packed as (major<<22)|(minor<<12)|patch) into
+// "FSR4 Vx.y.z". The major is fixed at 4 by the mod's contract (FFX 4.x = FSR4).
+static void formatFsrVersion(char* buf, size_t n) {
+    uint32_t v = FFX_UPSCALER_VERSION;
+    int major = (int)((v >> 22) & 0x3FF);
+    int minor = (int)((v >> 12) & 0x3FF);
+    int patch = (int)(v & 0xFFF);
+    _snprintf_s(buf, n, _TRUNCATE, "FSR4 V%d.%d.%d", major, minor, patch);
+}
+
+// Map REFramework's qualityLevel enum to the FSR preset name shown on the badge.
+// Mirrors the scale switch in createContext (case values are the FSR2/3 enum):
+//   0=Ultra Quality, 1=Quality, 2=Balanced, 3=Performance(3.0x), 4=Ultra Perf.
+static const char* qualityLevelName(int qualityLevel) {
+    switch (qualityLevel) {
+        case 0: return "ULTRA QUALITY";
+        case 1: return "QUALITY";
+        case 2: return "BALANCED";
+        case 3: return "PERFORMANCE";
+        case 4: return "ULTRA PERFORMANCE";
+        default: return "CUSTOM";
+    }
+}
+
+// -----------------------------------------------------------------------
 // Per-context state
 // -----------------------------------------------------------------------
 struct UpscaleContext {
@@ -230,6 +258,9 @@ struct UpscaleContext {
     ID3D12Resource*   watermarkTex   = nullptr;
     int               watermarkW     = 0;
     int               watermarkH     = 0;
+    // Strings baked into the watermark badge (FSR version + quality preset).
+    char              fsrVersion[32] = {0};
+    char              qualityName[32]= {0};
     ID3D12Resource*   solidTex       = nullptr; // PD_FSR4_DIAG_SOLID test texture
     ID3D12Device*     device         = nullptr;
 
@@ -478,6 +509,10 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     ctx.enableSharpening      = enableSharpening;
     ctx.enableAutoExposure    = enableAutoExposure;
     ctx.device                = m_impl->device;
+
+    formatFsrVersion(ctx.fsrVersion, sizeof(ctx.fsrVersion));
+    _snprintf_s(ctx.qualityName, sizeof(ctx.qualityName), _TRUNCATE, "%s",
+                qualityLevelName(qualityLevel));
 
     float scale;
     switch (qualityLevel) {
@@ -883,7 +918,8 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
                 if (!ctx.watermarkTex) {
                     ctx.watermarkTex = Fsr4Overlay::createWatermarkTexture(m_impl->device, m_impl->commandQueue,
                                                           ctx.watermarkW, ctx.watermarkH,
-                                                          (DXGI_FORMAT)ctx.format);
+                                                          (DXGI_FORMAT)ctx.format,
+                                                          ctx.fsrVersion, ctx.qualityName);
                     if (ctx.watermarkTex) {
                         Logging::info("FSR4Backend: watermark texture created %dx%d (DEFAULT heap, COPY_SOURCE) — will be copied into output each frame",
                                       ctx.watermarkW, ctx.watermarkH);
