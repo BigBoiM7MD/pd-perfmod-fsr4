@@ -1,12 +1,31 @@
+# Build artifacts
 build/
-*.user
-*.suo
-*.sdf
-*.log
-*.exp
+build_test2/
+out/
+
+# Generated object/library files (safety net in addition to build/)
+*.obj
 *.lib
+*.exp
 *.pdb
 *.ilk
-*.obj
 *.tlog
 *.lastbuildstate
+*.suo
+*.user
+*.sdf
+
+# Logs
+*.log
+
+# Local backups (timestamped, for local rollback only)
+backup_*/
+
+# FidelityFX SDK (644M, fetched separately; never commit)
+FidelityFX-SDK/
+
+# Downloaded dependency zips
+*.zip
+
+# Hermes agent runtime files
+.hermes/
