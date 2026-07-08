@@ -1,4 +1,4 @@
-#include "Logging.h"
+#include "../include/Logging.h"
 #include <Windows.h>
 
 FILE* Logging::s_file = nullptr;

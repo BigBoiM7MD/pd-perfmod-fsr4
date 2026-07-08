@@ -4,8 +4,8 @@
 //   DEFAULT-heap texture (COPY_DEST) <-- CopyTextureRegion <-- UPLOAD-heap
 //   BUFFER (format-agnostic) <-- Map. No UPLOAD-heap R10G10B10A2 textures,
 //   no WriteToSubresource. Validated end-to-end on D3D12 WARP.
-#include "fsr4_overlay.h"
-#include "Logging.h"
+#include "../include/fsr4_overlay.h"
+#include "../include/Logging.h"
 
 #include <d3d12.h>
 #include <dxgi1_4.h>

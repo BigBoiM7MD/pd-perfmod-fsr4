@@ -1,6 +1,6 @@
 ﻿#include "../include/PDPerfPlugin.h"
-#include "FSR4Backend.h"
-#include "Logging.h"
+#include "../include/FSR4Backend.h"
+#include "../include/Logging.h"
 
 #include <cstring>
 #include <d3d12.h>
@@ -19,9 +19,6 @@ static std::unordered_map<int, ID3D12Resource*> g_fallbackTextures;
 static void logCallback(char* message, int iSize) {
     if (g_logDelegate) g_logDelegate(message, iSize);
 }
-
-// Debug: Log when InitUpscaler is called
-static bool s_initUpscalerCalled = false;
 
 static void initialize() {
     if (g_initialized) return;

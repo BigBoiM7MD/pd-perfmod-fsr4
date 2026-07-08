@@ -1,6 +1,6 @@
-#include "FSR4Backend.h"
-#include "Logging.h"
-#include "fsr4_overlay.h"
+#include "../include/FSR4Backend.h"
+#include "../include/Logging.h"
+#include "../include/fsr4_overlay.h"
 #include "../include/PDPerfPlugin.h"
 
 #include <d3d12.h>
@@ -425,8 +425,9 @@ static FfxApiResource makeResource(ID3D12Resource* res, uint32_t state, uint32_t
 // Verification watermark + DIAG solid texture
 // The texture-creation logic (incl. the proven DEFAULT-buffer->texture fill)
 // now lives in fsr4_overlay.cpp / fsr4_overlay.h so it can be debugged and
-// re-verified in isolation. See that file for the full rationale. Disabled by
-// compiling with -DFSR4_NO_WATERMARK.
+// re-verified in isolation. See that file for the full rationale. The badge is
+// always drawn; the DIAG_SOLID full-frame overlay is compiled out under
+// -DFSR4_NO_WATERMARK.
 // -----------------------------------------------------------------------
 
 void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
