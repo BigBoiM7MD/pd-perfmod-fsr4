@@ -3,11 +3,12 @@
 #include "../include/PDPerfPlugin.h"
 
 #include <d3d12.h>
-#include <dxgi1_4.h>
+#include <dxgi1_6.h>
 #include <unordered_map>
 #include <cstring>
 #include <exception>
 #include <map>
+#include <vector>
 
 // -----------------------------------------------------------------------
 // FFX API type aliases matching the SDK headers exactly
@@ -47,7 +48,9 @@ static constexpr uint64_t FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE              
 static constexpr uint64_t FFX_API_DISPATCH_DESC_TYPE_UPSCALE                    = MAKE_EFFECT_SUB_ID(FFX_API_EFFECT_ID_UPSCALE, 0x01);
 static constexpr uint64_t FFX_API_QUERY_DESC_TYPE_UPSCALE_GET_JITTER_PHASE_COUNT = MAKE_EFFECT_SUB_ID(FFX_API_EFFECT_ID_UPSCALE, 0x04);
 static constexpr uint64_t FFX_API_QUERY_DESC_TYPE_UPSCALE_GET_JITTER_OFFSET      = MAKE_EFFECT_SUB_ID(FFX_API_EFFECT_ID_UPSCALE, 0x05);
-static constexpr uint64_t FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION       = MAKE_EFFECT_SUB_ID(FFX_API_EFFECT_ID_UPSCALE, 0x0b);
+static constexpr uint64_t FFX_API_QUERY_DESC_TYPE_GET_VERSIONS                    = 4u;
+static constexpr uint64_t FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION            = 6u;
+static constexpr uint64_t FFX_API_DESC_TYPE_OVERRIDE_VERSION                      = 5u;
 
 // Create flags
 static constexpr uint32_t FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE                 = (1 << 0);
@@ -108,9 +111,29 @@ struct ffxCreateContextDescUpscale {
     ffxApiMessage fpMessage;
 };
 
-struct ffxCreateContextDescUpscaleVersion {
+// Forced version override. When chained into the create desc pNext, the SDK
+// uses EXACTLY this version id (no auto-fallback) -- so we only ever attach it
+// with an id we already confirmed the GPU supports (see selectFsrVersion()).
+struct ffxOverrideVersion {
     ffxApiHeader header;
-    uint32_t version;
+    uint64_t versionId;
+};
+
+// Null-context query: enumerate FSR versions the GPU actually supports.
+struct ffxQueryDescGetVersions {
+    ffxQueryDescHeader header;
+    uint64_t createDescType;  // FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE
+    void*   device;           // ID3D12Device*
+    uint64_t* outputCount;    // in/out: capacity -> returned count
+    uint64_t* versionIds;     // out: array of version ids
+    const char** versionNames;// out: array of version name strings (copy them!)
+};
+
+// Context query: which version the created context actually initialized at.
+struct ffxQueryGetProviderVersion {
+    ffxQueryDescHeader header;
+    uint64_t versionId;       // out: running version id
+    const char* versionName;  // out: running version name (copy it!)
 };
 
 struct FfxApiResourceDescription {
@@ -235,6 +258,11 @@ struct FSR4Backend::Impl {
     ID3D12CommandQueue*   commandQueue = nullptr;
     int                   graphicsAPI  = 0;
     bool                  available    = false;
+    // FSR version the GPU actually supports (best/newest). Chosen at setup()
+    // via ffxQueryDescGetVersions so the mod runs on all GPUs (FSR4 4.1.1 if
+    // the GPU can do it, else FSR3.1, etc.). 0 = not enumerated yet.
+    uint64_t chosenVersionId   = 0;
+    char     chosenVersionName[64] = { 0 };
 
     ID3D12CommandAllocator*    cmdAlloc = nullptr;
     ID3D12GraphicsCommandList* cmdList  = nullptr;
@@ -354,7 +382,131 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
     m_impl->fenceEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
 
     m_impl->available = true;
+
+    // Enumerate the FSR versions this GPU actually supports and remember the
+    // newest one, so every context we create runs a version the GPU can do
+    // (FSR4 4.1.1 if it can, else FSR3.1, ...). Without this, requesting 4.1.1
+    // on an unsupported GPU makes ffxCreateContext fail -> no upscaling.
+    selectFsrVersion();
+
+    // FSR version + GPU: printed ONCE and in BOTH verbosity modes (gated on
+    // the preset actually loading, so we never spam before init succeeds).
+    logSystemInfo();
+
     return true;
+}
+
+// Enumerate the FSR versions THIS GPU supports and store the newest (highest
+// id) so we always request a version the device can run. The SDK's
+// ffxQueryDescGetVersions sorts newest-first into the arrays, so index 0 is
+// our pick. Returns false if the query fn is missing or no version is found
+// (caller then has no FSR at all).
+bool FSR4Backend::selectFsrVersion() {
+    m_impl->chosenVersionId = 0;
+    m_impl->chosenVersionName[0] = '\0';
+
+    if (!m_impl->ffxQueryFn || !m_impl->device) {
+        Logging::warn("FSR4Backend: cannot enumerate FSR versions (no query fn / device)");
+        return false;
+    }
+
+    // Pass count=0 -> SDK fills outputCount with the number of available versions.
+    uint64_t count = 0;
+    ffxQueryDescGetVersions q = {};
+    q.header.type       = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+    q.createDescType    = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+    q.device            = m_impl->device;
+    q.outputCount       = &count;
+    q.versionIds        = nullptr;
+    q.versionNames      = nullptr;
+
+    if (m_impl->ffxQueryFn(nullptr, &q.header) != 0 || count == 0) {
+        Logging::warn("FSR4Backend: ffxQuery(GetVersions) found 0 supported FSR versions");
+        return false;
+    }
+
+    std::vector<uint64_t> ids(count);
+    std::vector<const char*> names(count);
+    q.versionIds   = ids.data();
+    q.versionNames = names.data();
+    if (m_impl->ffxQueryFn(nullptr, &q.header) != 0) {
+        Logging::warn("FSR4Backend: ffxQuery(GetVersions) failed to fill versions");
+        return false;
+    }
+
+    // Newest is at index 0 (SDK sorts newest-first). Copy the name because the
+    // pointer points into loader memory that may be overwritten by later calls.
+    m_impl->chosenVersionId = ids[0];
+    strncpy_s(m_impl->chosenVersionName, names[0] ? names[0] : "?",
+              sizeof(m_impl->chosenVersionName) - 1);
+
+    if (Logging::isVerbose()) {
+        for (uint64_t i = 0; i < count; i++)
+            Logging::info("FSR4Backend: GPU supports FSR version %s (id=0x%016llx)",
+                          names[i] ? names[i] : "?", (unsigned long long)ids[i]);
+    }
+    return true;
+}
+
+// Decode FFX version encoding: FFX_MAKE_VERSION(major,minor,patch) =
+// (major << 22) | (minor << 12) | patch. Used only as a human-readable
+// fallback if the SDK version-name string isn't available.
+static void decodeFFXVersion(uint32_t v, char* out, size_t outLen) {
+    uint32_t major = (v >> 22) & 0x3FF;
+    uint32_t minor = (v >> 12) & 0x3FF;
+    uint32_t patch = v & 0xFFF;
+    sprintf_s(out, outLen, "%u.%u.%u", major, minor, patch);
+}
+
+// FSR version + GPU name, printed ONCE in BOTH verbosity modes (gated on the
+// preset actually loading, so we never spam before init succeeds).
+void FSR4Backend::logSystemInfo() {
+    char fsrVer[64] = "<unknown>";
+    char gpuName[MAX_PATH] = "<unknown GPU>";
+
+    // --- FSR version: the one this GPU actually supports (newest enumerated) ---
+    // This is the real version the mod will run as (FSR4 4.1.1 on capable HW,
+    // else FSR3.1, ...), NOT a hardcoded constant. Fall back to the decoded
+    // FFX_UPSCALER_VERSION constant only if enumeration didn't run.
+    if (m_impl->chosenVersionName[0])
+        strncpy_s(fsrVer, m_impl->chosenVersionName, sizeof(fsrVer) - 1);
+    else
+        decodeFFXVersion(FFX_UPSCALER_VERSION, fsrVer, sizeof(fsrVer));
+
+    // --- GPU: match the live device's LUID against enumerated adapters -----
+    // We deliberately do NOT use device->QueryInterface(IDXGIDevice) — that
+    // returns E_NOINTERFACE in some setups (and gives no way to be sure we
+    // picked the real GPU). Instead we enumerate adapters and pick the one
+    // whose AdapterLuid equals the device's LUID, so we never confuse the
+    // hardware GPU with the WARP/Microsoft Basic Render Driver.
+    if (m_impl->device) {
+        LUID devLuid = m_impl->device->GetAdapterLuid();
+        IDXGIFactory4* factory = nullptr;
+        if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
+            IDXGIAdapter* matched = nullptr;
+            for (UINT i = 0; ; i++) {
+                IDXGIAdapter* ad = nullptr;
+                if (FAILED(factory->EnumAdapters(i, &ad))) break; // NOT_FOUND ends it
+                DXGI_ADAPTER_DESC desc = {};
+                if (SUCCEEDED(ad->GetDesc(&desc))) {
+                    if (desc.AdapterLuid.HighPart == devLuid.HighPart &&
+                        desc.AdapterLuid.LowPart  == devLuid.LowPart) {
+                        WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1,
+                            gpuName, MAX_PATH, nullptr, nullptr);
+                        matched = ad; // hold ref; released below
+                    } else {
+                        ad->Release();
+                    }
+                } else {
+                    ad->Release();
+                }
+            }
+            if (matched) matched->Release();
+            factory->Release();
+        }
+    }
+
+    Logging::always("FSR version: %s  |  GPU: %s", fsrVer, gpuName);
 }
 
 bool FSR4Backend::isAvailable() const { return m_impl->available; }
@@ -439,11 +591,15 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
                   flags, isContentHDR, depthInverted, motionVectorsJittered,
                   enableAutoExposure, enableSharpening);
 
-    // pNext chain: upscaleDesc -> versionDesc -> backendDesc
-    ffxCreateContextDescUpscaleVersion versionDesc = {};
-    versionDesc.header.type  = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION;
-    versionDesc.header.pNext = nullptr;
-    versionDesc.version      = FFX_UPSCALER_VERSION;
+    // pNext chain: upscaleDesc -> overrideVersion -> backendDesc
+    // If we enumerated a supported version, force it via ffxOverrideVersion so
+    // the context deterministically runs the version the GPU supports (the
+    // newest one). Without the override, requesting 4.1.1 on an incapable GPU
+    // fails the whole context; with it, we get FSR4 on capable HW, FSR3.1 else.
+    ffxOverrideVersion overrideDesc = {};
+    overrideDesc.header.type  = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
+    overrideDesc.header.pNext = nullptr;
+    overrideDesc.versionId    = m_impl->chosenVersionId; // 0 => no override (legacy path)
 
     ffxCreateBackendDX12Desc backendDesc = {};
     backendDesc.header.type  = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
@@ -452,8 +608,12 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
 
     ffxCreateContextDescUpscale upscaleDesc = {};
     upscaleDesc.header.type             = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
-    upscaleDesc.header.pNext            = &versionDesc.header;
-    versionDesc.header.pNext            = &backendDesc.header;
+    if (m_impl->chosenVersionId) {
+        upscaleDesc.header.pNext        = &overrideDesc.header;
+        overrideDesc.header.pNext       = &backendDesc.header;
+    } else {
+        upscaleDesc.header.pNext        = &backendDesc.header;
+    }
     upscaleDesc.flags                  = flags;
     upscaleDesc.maxRenderSize.width    = (uint32_t)ctx.renderWidth;
     upscaleDesc.maxRenderSize.height   = (uint32_t)ctx.renderHeight;
@@ -482,6 +642,23 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
 
     Logging::info("FSR4Backend: ffxCreateContext SUCCEEDED");
     ctx.ffxCtx = ffxCtx;
+
+    // Truth check: ask the context which version it actually initialized at.
+    // Normally matches chosenVersionName; if it diverges (driver quirk, etc.)
+    // log the real running version so the user isn't misled. The name pointer
+    // lives in loader memory, so copy it.
+    if (m_impl->ffxQueryFn) {
+        ffxQueryGetProviderVersion pv = {};
+        pv.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
+        if (m_impl->ffxQueryFn(&ffxCtx, &pv.header) == 0 && pv.versionName) {
+            if (m_impl->chosenVersionName[0] == '\0' ||
+                strncmp(m_impl->chosenVersionName, pv.versionName, sizeof(m_impl->chosenVersionName) - 1) != 0) {
+                strncpy_s(m_impl->chosenVersionName, pv.versionName, sizeof(m_impl->chosenVersionName) - 1);
+                Logging::always("FSR running version: %s (id=0x%016llx)",
+                                m_impl->chosenVersionName, (unsigned long long)pv.versionId);
+            }
+        }
+    }
 
     // Create output texture
     D3D12_RESOURCE_DESC texDesc = {};

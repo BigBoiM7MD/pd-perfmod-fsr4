@@ -42,6 +42,14 @@ public:
     bool isMethodAvailable(int upscaleMethod) const;
     const char* getMethodName(int upscaleMethod) const;
 
+    // Prints "FSR version: X | GPU: Y" once, in BOTH verbosity modes.
+    void logSystemInfo();
+
+    // Enumerate FSR versions the GPU supports and pick the newest (so the mod
+    // runs on all GPUs: FSR4 4.1.1 if possible, else FSR3.1, ...). Stores the
+    // id+name in m_impl. Returns true if at least one version is available.
+    bool selectFsrVersion();
+
 private:
     struct Impl;
     Impl* m_impl;
