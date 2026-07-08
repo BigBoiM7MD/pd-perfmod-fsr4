@@ -252,24 +252,6 @@ struct FSR4Backend::Impl {
     HANDLE                     fenceEvent = nullptr;
     uint64_t                   fenceValue = 0;
 
-    // Cached directory of PDPerfPlugin.dll (resolved once). Sentinel-file
-    // toggles (PD_FSR4_DIAG_SOLID / PD_FSR4_NO_WATERMARK) live here. Caching
-    // avoids a GetModuleFileNameW + wstring alloc + GetFileAttributesW syscall
-    // every frame just to re-check a path that never changes.
-    std::wstring dllDir;
-    bool         dllDirResolved = false;
-    void resolveDllDir() {
-        if (dllDirResolved) return;
-        dllDirResolved = true;
-        HMODULE hmod = hInstance ? hInstance : GetModuleHandleW(L"PDPerfPlugin.dll");
-        if (!hmod) hmod = GetModuleHandleW(nullptr);
-        wchar_t dllPath[MAX_PATH] = {};
-        if (hmod) GetModuleFileNameW(hmod, dllPath, MAX_PATH);
-        std::wstring d = dllPath;
-        auto pos = d.find_last_of(L"\\/");
-        dllDir = (pos == std::wstring::npos) ? L"." : d.substr(0, pos);
-    }
-
     std::unordered_map<int, UpscaleContext> contexts;
 };
 
@@ -707,70 +689,71 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
     // We log every step so a run with the file but no green is still conclusive.
 #ifndef FSR4_NO_WATERMARK
     {
-        // Re-check the sentinel only a few times/sec (throttled) so toggling the
-        // file still works without a restart, but we don't burn a GetFileAttributesW
-        // syscall + wstring alloc every frame. dllDir is cached once at setup.
+        // Re-check the sentinel EVERY frame so toggling the file works without
+        // a restart, and resolve the DLL dir robustly (fall back to the process
+        // module if our cached hInstance is null).
+        bool on = false;
+        wchar_t dllPath[MAX_PATH] = {};
+        HMODULE hmod = (HMODULE)m_impl->hInstance;
+        if (!hmod) hmod = GetModuleHandleW(nullptr);
+        if (hmod) GetModuleFileNameW(hmod, dllPath, MAX_PATH);
+        std::wstring d = dllPath; auto pos = d.find_last_of(L"\\/");
+        std::wstring dir = (pos == std::wstring::npos) ? L"." : d.substr(0, pos);
+        std::wstring sentinel = dir + L"\\PD_FSR4_DIAG_SOLID";
+        on = (GetFileAttributesW(sentinel.c_str()) != INVALID_FILE_ATTRIBUTES);
         static int s_lastMode = -1;
-        static long long s_lastPoll = 0;
-        long long nowPoll = (long long)GetTickCount64();
-        if (nowPoll - s_lastPoll > 250) {
-            s_lastPoll = nowPoll;
-            m_impl->resolveDllDir();
-            std::wstring sentinel = m_impl->dllDir + L"\\PD_FSR4_DIAG_SOLID";
-            bool on = (GetFileAttributesW(sentinel.c_str()) != INVALID_FILE_ATTRIBUTES);
-            if (on != (s_lastMode == 1)) {
-                s_lastMode = on ? 1 : 0;
-                Logging::info("FSR4Backend: DIAG_SOLID mode %s (sentinel=%ls)",
-                              on ? "ON — painting output GREEN" : "OFF — normal FSR4",
-                              sentinel.c_str());
-            }
-            if (on) {
-                if (!ctx.solidTex) {
-                    ctx.solidTex = Fsr4Overlay::createSolidTexture(m_impl->device, m_impl->commandQueue, ctx.displaySizeX,
+        if (on != (s_lastMode == 1)) {
+            s_lastMode = on ? 1 : 0;
+            Logging::info("FSR4Backend: DIAG_SOLID mode %s (sentinel=%ls)",
+                          on ? "ON — painting output GREEN" : "OFF — normal FSR4",
+                          sentinel.c_str());
+        }
+        if (on) {
+            if (!ctx.solidTex) {
+                ctx.solidTex = Fsr4Overlay::createSolidTexture(m_impl->device, m_impl->commandQueue, ctx.displaySizeX,
                                                   ctx.displaySizeY, (DXGI_FORMAT)ctx.format,
                                                   0xC00FFC00); // opaque GREEN in R10G10B10A2
-                    Logging::info("FSR4Backend: DIAG_SOLID created solidTex=%p", (void*)ctx.solidTex);
+                Logging::info("FSR4Backend: DIAG_SOLID created solidTex=%p", (void*)ctx.solidTex);
+            }
+            if (ctx.solidTex && effectiveCmdList && effectiveDst) {
+                ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
+                D3D12_RESOURCE_BARRIER b = {};
+                b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                b.Transition.pResource = (ID3D12Resource*)effectiveDst;
+                b.Transition.Subresource = 0;
+                b.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
+                cl->ResourceBarrier(1, &b);
+                D3D12_TEXTURE_COPY_LOCATION dst = {}, src = {};
+                dst.pResource = (ID3D12Resource*)effectiveDst;
+                dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                dst.SubresourceIndex = 0;
+                src.pResource = ctx.solidTex;
+                src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                src.SubresourceIndex = 0;
+                cl->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+                b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+                b.Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                cl->ResourceBarrier(1, &b);
+                static long long s_last = 0;
+                long long now = (long long)GetTickCount64();
+                if (now - s_last > 2000) {
+                    s_last = now;
+                    Logging::info("FSR4Backend: DIAG_SOLID painted output GREEN (out=%p cmdList=%p)",
+                                  effectiveDst, effectiveCmdList);
                 }
-                if (ctx.solidTex && effectiveCmdList && effectiveDst) {
-                    ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
-                    D3D12_RESOURCE_BARRIER b = {};
-                    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                    b.Transition.pResource = (ID3D12Resource*)effectiveDst;
-                    b.Transition.Subresource = 0;
-                    b.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-                    b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
-                    cl->ResourceBarrier(1, &b);
-                    D3D12_TEXTURE_COPY_LOCATION dst = {}, src = {};
-                    dst.pResource = (ID3D12Resource*)effectiveDst;
-                    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    dst.SubresourceIndex = 0;
-                    src.pResource = ctx.solidTex;
-                    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    src.SubresourceIndex = 0;
-                    cl->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-                    b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-                    b.Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-                    cl->ResourceBarrier(1, &b);
-                    static long long s_last = 0;
-                    long long now = (long long)GetTickCount64();
-                    if (now - s_last > 2000) {
-                        s_last = now;
-                        Logging::info("FSR4Backend: DIAG_SOLID painted output GREEN (out=%p cmdList=%p)",
-                                      effectiveDst, effectiveCmdList);
-                    }
-                }
-                // Submit the internal command list if REFramework handed us none
-                // (otherwise the green copy above is recorded but never executed).
-                if (!cmdList && effectiveCmdList && m_impl->commandQueue) {
-                    ID3D12GraphicsCommandList* cl2 = (ID3D12GraphicsCommandList*)effectiveCmdList;
-                    cl2->Close();
-                    ID3D12CommandList* lists[] = { cl2 };
-                    m_impl->commandQueue->ExecuteCommandLists(1, lists);
-                    // Signal for allocator lifetime only — no per-frame CPU stall
-                    // (see normal path below for rationale).
-                    m_impl->commandQueue->Signal(m_impl->fence, ++m_impl->fenceValue);
-                    return; // skip FSR4 entirely in solid mode
-                }
+            }
+            // Submit the internal command list if REFramework handed us none
+            // (otherwise the green copy above is recorded but never executed).
+            if (!cmdList && effectiveCmdList && m_impl->commandQueue) {
+                ID3D12GraphicsCommandList* cl2 = (ID3D12GraphicsCommandList*)effectiveCmdList;
+                cl2->Close();
+                ID3D12CommandList* lists[] = { cl2 };
+                m_impl->commandQueue->ExecuteCommandLists(1, lists);
+                // Signal for allocator lifetime only — no per-frame CPU stall
+                // (see normal path below for rationale).
+                m_impl->commandQueue->Signal(m_impl->fence, ++m_impl->fenceValue);
+                return; // skip FSR4 entirely in solid mode
             }
         }
     }
@@ -785,24 +768,24 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         // the DLL to suppress the badge with NO recompile (mirrors the
         // PD_FSR4_DIAG_SOLID sentinel). Useful for A/B perf comparisons.
         {
-            // Runtime kill-switch: file "PD_FSR4_NO_WATERMARK" next to the DLL
-            // suppresses the badge with NO recompile. Poll a few times/sec only;
-            // dllDir is cached once so this is a single cheap GetFileAttributesW
-            // every ~250ms, not a GetModuleFileNameW + wstring alloc every frame.
-            static int s_lastWm = -1;
-            static long long s_lastWmPoll = 0;
-            long long nowWm = (long long)GetTickCount64();
-            if (nowWm - s_lastWmPoll > 250) {
-                s_lastWmPoll = nowWm;
-                m_impl->resolveDllDir();
-                bool wm_off = (GetFileAttributesW((m_impl->dllDir + L"\\PD_FSR4_NO_WATERMARK").c_str()) != INVALID_FILE_ATTRIBUTES);
-                if (wm_off != (s_lastWm == 1)) {
-                    s_lastWm = wm_off ? 1 : 0;
-                    Logging::info("FSR4Backend: watermark badge %s (sentinel=%ls\\PD_FSR4_NO_WATERMARK)",
-                                  wm_off ? "DISABLED via file" : "ENABLED", m_impl->dllDir.c_str());
-                }
+            // Resolve the DLL dir locally (the DIAG_SOLID block's `dir` is out of
+            // scope here) so the kill-switch file is found next to the DLL.
+            std::wstring wdir = L".";
+            {
+                wchar_t dllPath[MAX_PATH] = {};
+                HMODULE hmod = (HMODULE)m_impl->hInstance;
+                if (!hmod) hmod = GetModuleHandleW(nullptr);
+                if (hmod) GetModuleFileNameW(hmod, dllPath, MAX_PATH);
+                std::wstring d = dllPath; auto pos = d.find_last_of(L"\\/");
+                wdir = (pos == std::wstring::npos) ? L"." : d.substr(0, pos);
             }
-            bool wm_off = (s_lastWm == 1);
+            bool wm_off = (GetFileAttributesW((wdir + L"\\PD_FSR4_NO_WATERMARK").c_str()) != INVALID_FILE_ATTRIBUTES);
+            static int s_lastWm = -1;
+            if (wm_off != (s_lastWm == 1)) {
+                s_lastWm = wm_off ? 1 : 0;
+                Logging::info("FSR4Backend: watermark badge %s (sentinel=%ls\\PD_FSR4_NO_WATERMARK)",
+                              wm_off ? "DISABLED via file" : "ENABLED", wdir.c_str());
+            }
             if (!wm_off && m_impl->device && effectiveDst) {
                 if (!ctx.watermarkTex) {
                     ctx.watermarkTex = Fsr4Overlay::createWatermarkTexture(m_impl->device, m_impl->commandQueue,
