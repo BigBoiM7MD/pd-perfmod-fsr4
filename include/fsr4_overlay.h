@@ -33,15 +33,24 @@ ID3D12Resource* createTexFromPixels(ID3D12Device* dev,
                                      ID3D12CommandQueue* queue,
                                      int w, int h,
                                      DXGI_FORMAT targetFmt,
-                                     const std::vector<uint32_t>& px);
+                                     const std::vector<uint8_t>& px);
 
-// Full-frame solid-color texture (PD_FSR4_DIAG_SOLID). `color` is the raw
-// R10G10B10A2 packed value (e.g. 0xC00FFC00 for opaque green).
+// Full-frame solid-color texture (PD_FSR4_DIAG_SOLID). `colorArgb` is
+// 0xAARRGGBB (repacked into the real output format before upload).
 ID3D12Resource* createSolidTexture(ID3D12Device* dev,
                                     ID3D12CommandQueue* queue,
                                     int w, int h,
                                     DXGI_FORMAT targetFmt,
-                                    uint32_t color);
+                                    uint32_t colorArgb);
+
+// Blit `src` (w x h, same format as `dst`) into `dst` at (destX,destY) on the
+// given command list. Uses a BUFFER placed-footprint source so the partial,
+// offset copy is VALID (texture->texture CopyTextureRegion ignores DstX/Y and
+// requires identical sizes -- which would scramble a larger destination).
+void blitToOutput(ID3D12GraphicsCommandList* cl,
+                  ID3D12Resource* dst, int dstW, int dstH,
+                  ID3D12Resource* src, int srcW, int srcH,
+                  int destX, int destY, DXGI_FORMAT fmt);
 
 // Verification watermark texture. Renders a two-line badge so the on-screen
 // overlay reports what the mod is actually running:
@@ -49,12 +58,15 @@ ID3D12Resource* createSolidTexture(ID3D12Device* dev,
 //   line 2: the upscaling quality level (e.g. "ULTRA PERFORMANCE")
 // `fsrVersion` and `qualityLevelName` are plain ASCII passed in by the caller
 // (they are formatted from FFX_UPSCALER_VERSION and the quality enum in the
-// backend). Writes outW/outH.
+// backend). `dispW`/`dispH` are the OUTPUT backbuffer size; the badge is
+// scaled relative to them so it stays a readable fraction of screen height on
+// 1080p, 1440p, and 4K. Writes outW/outH.
 ID3D12Resource* createWatermarkTexture(ID3D12Device* dev,
                                        ID3D12CommandQueue* queue,
                                        int& outW, int& outH,
                                        DXGI_FORMAT targetFmt,
                                        const char* fsrVersion,
-                                       const char* qualityLevelName);
+                                       const char* qualityLevelName,
+                                       int dispW, int dispH);
 
 } // namespace Fsr4Overlay

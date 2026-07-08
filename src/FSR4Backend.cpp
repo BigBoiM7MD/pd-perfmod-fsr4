@@ -932,7 +932,8 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
                     ctx.watermarkTex = Fsr4Overlay::createWatermarkTexture(m_impl->device, m_impl->commandQueue,
                                                           ctx.watermarkW, ctx.watermarkH,
                                                           (DXGI_FORMAT)ctx.format,
-                                                          ctx.fsrVersion, ctx.qualityName);
+                                                          ctx.fsrVersion, ctx.qualityName,
+                                                          ctx.displaySizeX, ctx.displaySizeY);
                     ctx.watermarkQuality = ctx.qualityLevel;
                     if (ctx.watermarkTex) {
                         Logging::info("FSR4Backend: watermark texture created %dx%d (DEFAULT heap, COPY_SOURCE) — will be copied into output each frame",

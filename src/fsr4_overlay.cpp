@@ -366,14 +366,25 @@ ID3D12Resource* createSolidTexture(ID3D12Device* dev, ID3D12CommandQueue* queue,
 
 ID3D12Resource* createWatermarkTexture(ID3D12Device* dev, ID3D12CommandQueue* queue,
                                         int& outW, int& outH, DXGI_FORMAT targetFmt,
-                                        const char* fsrVersion, const char* qualityLevelName) {
+                                        const char* fsrVersion, const char* qualityLevelName,
+                                        int dispW, int dispH) {
     // Two-line badge: line 1 = FSR version, line 2 = upscaling quality level.
-    // Glyphs are scaled up (SCALE x) so the badge stays readable when copied
-    // 1:1 into a full-res backbuffer (5px text is invisible on 1080p+). A solid
+    // Glyphs are scaled up so the badge stays a readable FRACTION of the output
+    // height regardless of resolution (5px text is invisible on 1080p+). A solid
     // dark panel sits behind the text for contrast over any scene. Colors are
     // packed for the game's ACTUAL output format (see packColor) so the panel
     // really is dark gray, not a blue field.
-    const int SCALE = 3;
+    //
+    // SCALE is derived from the backbuffer height: target ~3.2% of screen height
+    // per badge line (7 glyph rows), clamped to [2,7]. On 1080p => ~34px line =>
+    // SCALE=5 (35px); on 4K => SCALE=7. The badge is thus ~7% of screen height
+    // tall in total -- clearly legible, not a tiny block.
+    (void)dispW;
+    const int lineH = 7;                       // glyph rows
+    int targetPix = (int)((dispH * 0.032) + 0.5);
+    int SCALE = (int)((float)targetPix / lineH + 0.5);
+    if (SCALE < 2) SCALE = 2;
+    if (SCALE > 7) SCALE = 7;
     const int GLYPH_W = 5 * SCALE;        // 15px per glyph cell (incl. 1px gap)
     const int GLYPH_H = 7 * SCALE;        // 21px per line
     const int PAD     = 8 * SCALE;        // 24px inner padding
