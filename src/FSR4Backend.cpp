@@ -1055,23 +1055,23 @@ void FSR4Backend::logJitterOnce(float x, float y, int index, int phaseCount) con
 
 bool FSR4Backend::isMethodAvailable(int upscaleMethod) const {
     if (!m_impl->available) return false;
-    // This mod replaces the game's upscaler with FSR4 (built on the FSR3
-    // backend). REFramework's TemporalUpscaler probes method ids via
-    // IsUpscaleMethodAvailable and only lets you pick one that reports true,
-    // then drives it through the FSR3 back-end contract. So we advertise ONLY
-    // FSR3 (id 1) as selectable — hiding DLSS/XeSS/FSR4 from the dropdown keeps
-    // the menu honest about what this mod actually provides. FSR4 itself is
-    // what runs under the hood, so exposing a separate "FSR4" entry is
-    // redundant and just confuses the menu.
-    return upscaleMethod == 1; // AMD FSR 3 is the only selectable back-end
+    // REFramework's TemporalUpscaler enumerates exactly three method ids via
+    // PDUpscaleType { DLSS=0, FSR2=1, XeSS=2 } (TemporalUpscaler.cpp loops
+    // for i = 0..XESS) and only lists one whose IsUpscaleMethodAvailable
+    // returns true. We advertise ONLY id 1 as selectable; getMethodName relabels
+    // it "AMD FSR 3" because this mod runs FSR4 under the FSR back-end contract.
+    // DLSS (0) and XeSS (2) report false and are hidden. There is no FSR4 id in
+    // REFramework's dropdown, so no separate entry needs hiding.
+    return upscaleMethod == 1; // only the FSR back-end (id 1) is selectable
 }
 
 const char* FSR4Backend::getMethodName(int upscaleMethod) const {
+    // REFramework only queries ids 0..2 (DLSS, FSR2, XeSS). We relabel id 1 as
+    // "AMD FSR 3" since this mod drives FSR4 through the FSR back-end.
     switch (upscaleMethod) {
         case 0: return "NVIDIA DLSS";
         case 1: return "AMD FSR 3";
         case 2: return "Intel XeSS";
-        case 3: return "AMD FSR 4";
         default: return "";
     }
 }
