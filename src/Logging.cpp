@@ -43,8 +43,13 @@ void Logging::init() {
     // --- Open the log file (re)created each load -------------------------
     char logPath[MAX_PATH];
     sprintf_s(logPath, "%s\\" PD_LOG_FILE_NAME, dllDir);
-    fopen_s(&s_file, logPath, "w");
+    // _fsopen with _SH_DENYWR lets external log viewers READ the file while the
+    // game keeps it open for writing (Notepad/tail won't be blocked). Unbuffered
+    // (_IONBF) so every line hits disk immediately -> log is live, not only on
+    // game exit. (We still fflush() after each line as a belt-and-suspenders.)
+    s_file = _fsopen(logPath, "w", _SH_DENYWR);
     if (s_file) {
+        setvbuf(s_file, nullptr, _IONBF, 0);
         always("pd-perfmod-fsr4 loaded (mode: %s)", s_verbose ? "VERBOSE" : "NON-VERBOSE");
     }
 }
