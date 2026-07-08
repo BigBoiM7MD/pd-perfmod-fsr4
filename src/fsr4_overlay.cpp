@@ -195,8 +195,11 @@ static void packColor(DXGI_FORMAT fmt, uint8_t out[8], uint8_t r, uint8_t g, uin
 // glyph pixel is expanded to `scale`x`scale` blocks so the badge stays legible
 // when copied 1:1 into a full-resolution backbuffer. Bit0 of a row byte is
 // column 0 (left), so we test (bits >> col) & 1. Out-of-range writes clipped.
+// If `mask` is non-null it is filled 1 where a text pixel lands (used by the
+// antialiasing downsample pass, which is format-independent).
 static void drawStringScaled(std::vector<uint8_t>& px, int w, int h, int x0, int y0,
-                             const char* str, const uint8_t* color, int bpp, int scale) {
+                             const char* str, const uint8_t* color, int bpp, int scale,
+                             std::vector<uint8_t>* mask = nullptr, int mw = 0) {
     if (!str || scale < 1) return;
     int x = x0;
     for (const char* p = str; *p; ++p) {
@@ -212,6 +215,7 @@ static void drawStringScaled(std::vector<uint8_t>& px, int w, int h, int x0, int
                             if (gx >= 0 && gx < w && gy >= 0 && gy < h) {
                                 size_t off = ((size_t)gy * w + gx) * bpp;
                                 memcpy(&px[off], color, bpp);
+                                if (mask && mw > 0) (*mask)[(size_t)gy * mw + gx] = 1;
                             }
                         }
                     }
@@ -375,20 +379,31 @@ ID3D12Resource* createWatermarkTexture(ID3D12Device* dev, ID3D12CommandQueue* qu
     // packed for the game's ACTUAL output format (see packColor) so the panel
     // really is dark gray, not a blue field.
     //
-    // SCALE is derived from the backbuffer height: target ~3.2% of screen height
-    // per badge line (7 glyph rows), clamped to [2,7]. On 1080p => ~34px line =>
-    // SCALE=5 (35px); on 4K => SCALE=7. The badge is thus ~7% of screen height
-    // tall in total -- clearly legible, not a tiny block.
+    // WHY SUPERSAMPLE + ANTIALIAS:
+    //   REFramework's copier upscales this output texture to the real backbuffer
+    //   with a LINEAR filter. A binary 5px pixel-font does NOT survive a linear
+    //   magnification -- the hard on/off edges moire into garbage (the in-game
+    //   "completely garbled" report). Fix: rasterize at 2x, then downsample the
+    //   hi-res mask to the final size by COVERAGE (output alpha = text-coverage
+    //   in each dest pixel), giving smooth, linearly-interpolable edges that
+    //   stay crisp through the present upscale. Coverage is format-independent
+    //   (we blend PANEL..TEXT per dest pixel), so it works for R10G10B10A2 etc.
+    //
+    // SCALE is derived from the output height: target ~3.2% of height per badge
+    // line (7 glyph rows), clamped to [2,7]. On 1080p => ~34px line => SCALE=5;
+    // on 4K => SCALE=7. The badge is ~7% of output height tall -- same on-screen
+    // fraction after the (uniform-fraction) present stretch.
     (void)dispW;
     const int lineH = 7;                       // glyph rows
     int targetPix = (int)((dispH * 0.032) + 0.5);
     int SCALE = (int)((float)targetPix / lineH + 0.5);
     if (SCALE < 2) SCALE = 2;
     if (SCALE > 7) SCALE = 7;
-    const int GLYPH_W = 5 * SCALE;        // 15px per glyph cell (incl. 1px gap)
-    const int GLYPH_H = 7 * SCALE;        // 21px per line
-    const int PAD     = 8 * SCALE;        // 24px inner padding
-    const int LINE_GAP = 6 * SCALE;       // 18px between the two lines
+    const int SS = 2;                          // supersample factor
+    const int GLYPH_W = 5 * SCALE * SS;        // hi-res glyph cell (incl. 1px gap)
+    const int GLYPH_H = 7 * SCALE * SS;        // hi-res line
+    const int PAD     = 8 * SCALE * SS;        // hi-res padding
+    const int LINE_GAP = 6 * SCALE * SS;       // hi-res inter-line gap
     const int bpp = formatBpp(targetFmt);
     uint8_t PANEL[8], TEXT[8];
     packColor(targetFmt, PANEL, 18, 18, 18, 235); // near-opaque dark gray
@@ -401,17 +416,46 @@ ID3D12Resource* createWatermarkTexture(ID3D12Device* dev, ID3D12CommandQueue* qu
     int wText = lineWidth(fsrVersion);
     int qw = lineWidth(qualityLevelName);
     if (qw > wText) wText = qw;
-    int w = wText + PAD * 2;
-    int h = PAD * 2 + GLYPH_H * 2 + LINE_GAP;
+    int wHi = wText + PAD * 2;
+    int hHi = PAD * 2 + GLYPH_H * 2 + LINE_GAP;
 
-    std::vector<uint8_t> px((size_t)w * h * bpp, 0);
-    for (size_t i = 0; i < (size_t)w * h; ++i) memcpy(&px[i * bpp], PANEL, bpp);
-
-    // Line 1 (FSR version) and line 2 (quality preset), top-aligned in padding.
+    // --- Hi-res raster: PANEL-filled, TEXT where glyph pixels land -----------
+    std::vector<uint8_t> pxHi((size_t)wHi * hHi * bpp, 0);
+    for (size_t i = 0; i < (size_t)wHi * hHi; ++i) memcpy(&pxHi[i * bpp], PANEL, bpp);
+    std::vector<uint8_t> maskHi((size_t)wHi * hHi, 0);
     int y1 = PAD;
     int y2 = PAD + GLYPH_H + LINE_GAP;
-    drawStringScaled(px, w, h, PAD, y1, fsrVersion,       TEXT, bpp, SCALE);
-    drawStringScaled(px, w, h, PAD, y2, qualityLevelName, TEXT, bpp, SCALE);
+    drawStringScaled(pxHi, wHi, hHi, PAD, y1, fsrVersion,       TEXT, bpp, SCALE * SS, &maskHi, wHi);
+    drawStringScaled(pxHi, wHi, hHi, PAD, y2, qualityLevelName, TEXT, bpp, SCALE * SS, &maskHi, wHi);
+
+    // --- Downsample: dest pixel = coverage-weighted blend PANEL..TEXT --------
+    // This produces GREY edges (partial alpha over the dark panel) that the
+    // linear present upscale interpolates cleanly instead of moiring.
+    int w = wHi / SS, h = hHi / SS;
+    std::vector<uint8_t> px((size_t)w * h * bpp, 0);
+    const int win = SS * SS;
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            int cov = 0;
+            for (int sy = 0; sy < SS; ++sy)
+                for (int sx = 0; sx < SS; ++sx)
+                    cov += maskHi[((size_t)(y * SS + sy)) * wHi + (x * SS + sx)];
+            uint8_t* d = &px[((size_t)y * w + x) * bpp];
+            float t = (float)cov / win;            // 0=panel, 1=text
+            if (t <= 0.0f)      memcpy(d, PANEL, bpp);
+            else if (t >= 1.0f) memcpy(d, TEXT, bpp);
+            else {
+                // blend each source channel (format-agnostic; all our formats
+                // are R,G,B,A with per-channel [0..max], linear enough here).
+                for (int c = 0; c < bpp && c < 4; ++c) {
+                    uint8_t pv = PANEL[c], tv = TEXT[c];
+                    d[c] = (uint8_t)(pv + (tv - pv) * t + 0.5f);
+                }
+                // keep format's alpha correct
+                if (bpp >= 4) d[bpp - 1] = PANEL[bpp - 1];
+            }
+        }
+    }
 
     ID3D12Resource* tex = createTexFromPixels(dev, queue, w, h, targetFmt, px);
     if (tex) { outW = w; outH = h; }

@@ -967,8 +967,30 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
                     static bool s_badgeLogged = false;
                     if (!s_badgeLogged) {
                         s_badgeLogged = true;
-                        Logging::info("FSR4Backend: watermark copied (out fmt=%d badge fmt=%d) — badge should now be visible",
-                                      ctx.format, (int)ctx.watermarkTex->GetDesc().Format);
+                        auto fmtName = [](int f) -> const char* {
+                            switch (f) {
+                                case 28: return "R8G8B8A8_UNORM"; case 27: return "R8G8B8A8_TYPELESS";
+                                case 87: return "B8G8R8A8_UNORM"; case 90: return "B8G8R8A8_TYPELESS";
+                                case 24: return "R10G10B10A2_UNORM"; case 23: return "R10G10B10A2_TYPELESS";
+                                case 10: return "R16G16B16A16_FLOAT"; case 9: return "R16G16B16A16_TYPELESS";
+                                default: return "OTHER/UNHANDLED";
+                            }
+                        };
+                        ID3D12Resource* outRes = (ID3D12Resource*)effectiveDst;
+                        int outFmt = outRes ? (int)outRes->GetDesc().Format : -1;
+                        int outW = outRes ? (int)outRes->GetDesc().Width : -1;
+                        int outH = outRes ? (int)outRes->GetDesc().Height : -1;
+                        int badgeFmt = (int)ctx.watermarkTex->GetDesc().Format;
+                        int badgeW = (int)ctx.watermarkTex->GetDesc().Width;
+                        int badgeH = (int)ctx.watermarkTex->GetDesc().Height;
+                        int outTexW = ctx.outputTexture ? (int)((ID3D12Resource*)ctx.outputTexture)->GetDesc().Width : -1;
+                        int outTexH = ctx.outputTexture ? (int)((ID3D12Resource*)ctx.outputTexture)->GetDesc().Height : -1;
+                        Logging::info("FSR4Backend: watermark fmt diag -> ctx.format=%d(%s) effectiveDst=%d(%s) %dx%d badge=%d(%s) %dx%d | match(outsrc=%s) disp=%dx%d outTex=%dx%d",
+                                      ctx.format, fmtName(ctx.format),
+                                      outFmt, fmtName(outFmt), outW, outH,
+                                      badgeFmt, fmtName(badgeFmt), badgeW, badgeH,
+                                      (outFmt == badgeFmt) ? "YES" : "NO",
+                                      ctx.displaySizeX, ctx.displaySizeY, outTexW, outTexH);
                     }
 
                     b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
