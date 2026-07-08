@@ -341,7 +341,19 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
         }
         Logging::warn("FSR4Backend: Failed to load %s (err=%d)", name, GetLastError());
     }
-    if (!m_impl->hLoaderDll) return false;
+    if (!m_impl->hLoaderDll) {
+        // The FFX loader + FSR4 shader/payload files ship alongside the game, NOT
+        // inside PDPerfPlugin.dll. If they're missing the upscaler can't init and
+        // REFramework presents the (un-upscaled) fallback texture -> black screen.
+        // Tell the user exactly what to drop next to the game .exe.
+        Logging::error("=============================================================");
+        Logging::error("FSR4Backend: FFX loader NOT FOUND. FSR4 will NOT run (black screen).");
+        Logging::error("Place these FSR4 files next to the GAME .exe (or in REFramework's");
+        Logging::error("upscaler folder): amd_fidelityfx_loader_dx12.dll (and the FSR4");
+        Logging::error("shader/payload files it depends on). See the mod's install notes.");
+        Logging::error("=============================================================");
+        return false;
+    }
 
     m_impl->ffxCreateContextFn  = (PFN_ffxCreateContext)GetProcAddress(m_impl->hLoaderDll, "ffxCreateContext");
     m_impl->ffxDestroyContextFn = (PFN_ffxDestroyContext)GetProcAddress(m_impl->hLoaderDll, "ffxDestroyContext");
@@ -498,7 +510,14 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     Logging::info("FSR4Backend: ffxCreateContext returned ret=%d ctx=%p", ret, ffxCtx);
 
     if (ret != 0 || ffxCtx == nullptr) {
-        Logging::error("FSR4Backend: ffxCreateContext failed code=%d", ret);
+        // ffxCreateContext fails when the loader's FSR4 shader/payload files are
+        // missing or version-mismatched -> upscaler can't run -> black screen.
+        Logging::error("=============================================================");
+        Logging::error("FSR4Backend: ffxCreateContext failed (code=%d). The FSR4 payload", ret);
+        Logging::error("files required by amd_fidelityfx_loader_dx12.dll are missing or the");
+        Logging::error("loader version is wrong. Verify the FSR4 files match FFX version");
+        Logging::error("0x%x. FSR4 will NOT run (black screen).", (unsigned)FFX_UPSCALER_VERSION);
+        Logging::error("=============================================================");
         return nullptr;
     }
 
@@ -556,6 +575,13 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
                             float motionScaleX, float motionScaleY, bool reset,
                             float nearPlane, float farPlane, float verticalFOV,
                             bool execute, void* cmdList) {
+    // --- Diagnostics (debug builds only) ------------------------------------
+    // Gated behind FSR4_DIAGNOSTICS. Define it for a debugging release to get the
+    // per-second CALLED counter, the one-time cmdList PROBE, and the true
+    // in-function CPU timer. Off in normal builds so Release stays clean.
+#ifndef FSR4_DIAGNOSTICS
+    (void)cmdList; (void)destination; (void)color; (void)motionVector; (void)depth; (void)execute;
+#else
     // Diagnostic: log entry (rate-limited to ~1/sec) so we can see whether
     // REFramework is invoking evaluate() at all, and why it might bail.
     {
@@ -568,6 +594,12 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         }
         s_count++;
     }
+
+    // True per-call CPU timing: stamp entry here, measure elapsed at function
+    // exit. (The old timer measured the gap BETWEEN calls = 1/fps, not CPU cost,
+    // so it always read ~4.4ms at 227fps and was useless for finding hot spots.)
+    long long s_entryT = (long long)GetTickCount64();
+#endif
 
     auto it = m_impl->contexts.find(id);
     if (it == m_impl->contexts.end() || !it->second.ffxCtx || !m_impl->ffxDispatchFn) {
@@ -610,6 +642,27 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         if (FAILED(m_impl->cmdList->Reset(m_impl->cmdAlloc, nullptr))) return;
         effectiveCmdList = m_impl->cmdList;
     }
+
+    // One-time diagnostic (FSR4_DIAGNOSTICS only): how does REFramework hand us
+    // the command list? If nullptr we spin up our OWN ID3D12GraphicsCommandList
+    // and execute+Signal it every frame (see L862). This is parity with every
+    // upscaler (REFramework passes a null list to all of them via UpscaleParams),
+    // so it is NOT a gap source — but the probe is useful for debugging Release.
+#ifndef FSR4_DIAGNOSTICS
+    (void)cmdList;
+#else
+    {
+        static bool s_logged = false;
+        if (!s_logged) {
+            s_logged = true;
+            Logging::info("FSR4Backend: PROBE cmdList=%s effectiveDst=%s -> %s submit path",
+                          cmdList ? "provided" : "NULL",
+                          destination ? "provided" : "internal-output",
+                          cmdList ? "record-into-REFramework-list (no extra submit)"
+                                  : "OWN internal command list (ExecuteCommandLists+Signal per frame)");
+        }
+    }
+#endif
 
     ffxDispatchDescUpscale dd = {};
     dd.header.type  = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
@@ -877,26 +930,25 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         m_impl->commandQueue->Signal(m_impl->fence, ++m_impl->fenceValue);
     }
 
-    // --- Per-frame CPU timing (rate-limited) ---------------------------------
-    // Measures how long THIS function (CPU side) takes per call. Used to confirm
-    // the fence-stall regression is gone. Should be a few microseconds once the
-    // per-frame WaitForSingleObject is removed.
+    // --- True per-call CPU timing (FSR4_DIAGNOSTICS only; scoped entry->here) --
+    // Measures THIS function's CPU work per frame. Off in normal builds.
+#ifndef FSR4_DIAGNOSTICS
+    (void)0;
+#else
     {
-        static long long s_t0 = 0;
-        if (s_t0 == 0) s_t0 = (long long)GetTickCount64();
         static long long s_lastLog = 0;
         static double s_msSum = 0; static long long s_n = 0;
         long long t1 = (long long)GetTickCount64();
-        s_msSum += (double)(t1 - s_t0); s_n++;
-        s_t0 = t1;
+        s_msSum += (double)(t1 - s_entryT); s_n++;
         if (t1 - s_lastLog > 2000) {
             s_lastLog = t1;
             double avg = s_n ? (s_msSum / (double)s_n) : 0.0;
-            Logging::info("FSR4Backend: evaluate() CPU avg=%.3f ms over %lld calls (no per-frame GPU stall)",
+            Logging::info("FSR4Backend: evaluate() CPU avg=%.4f ms over %lld calls (true in-function cost)",
                           avg, (long long)s_n);
             s_msSum = 0; s_n = 0;
         }
     }
+#endif
 }
 
 void FSR4Backend::release(int id) {

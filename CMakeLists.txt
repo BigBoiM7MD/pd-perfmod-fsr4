@@ -9,7 +9,6 @@ add_library(${PROJECT_NAME} SHARED
     src/PDPerfPlugin.cpp
     src/FSR4Backend.cpp
     src/fsr4_overlay.cpp
-    src/OriginalPlugin.cpp
     src/Logging.cpp
 )
 

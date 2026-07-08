@@ -1,6 +1,5 @@
 ﻿#include "../include/PDPerfPlugin.h"
 #include "FSR4Backend.h"
-#include "OriginalPlugin.h"
 #include "Logging.h"
 
 #include <cstring>
@@ -10,8 +9,6 @@
 #include <map>
 
 static FSR4Backend* g_fsr4 = nullptr;
-static OriginalPlugin* g_original = nullptr;
-static bool g_useOriginal = false;
 static bool g_initialized = false;
 static void (*g_logDelegate)(char*, int) = nullptr;
 
@@ -34,7 +31,6 @@ static void initialize() {
     Logging::info("pd-perfmod-fsr4 initializing...");
 
     g_fsr4 = new FSR4Backend();
-    g_original = new OriginalPlugin();
 }
 
 static ID3D12Resource* createFallbackTexture(int displaySizeX, int displaySizeY, int format) {
@@ -79,14 +75,7 @@ bool __stdcall SetupDirectX(void* item, int graphicsAPI) {
 
     if (g_fsr4->setup(item, graphicsAPI)) {
         Logging::info("FSR 4 backend ready");
-        g_useOriginal = false;
         return true;
-    }
-
-    if (g_original->load()) {
-        Logging::info("Falling back to original PDPerfPlugin");
-        g_useOriginal = true;
-        return g_original->setupDirectX(item, graphicsAPI);
     }
 
     Logging::error("No upscaler backend available");
@@ -100,18 +89,11 @@ void* __stdcall SimpleInit(int id, int upscaleMethod, int qualityLevel,
                             bool enableAutoExposure, int format) {
     initialize();
 
-    if (!g_useOriginal && g_fsr4 && g_fsr4->isAvailable()) {
+    if (g_fsr4 && g_fsr4->isAvailable()) {
         return g_fsr4->createContext(id, upscaleMethod, qualityLevel, displaySizeX, displaySizeY,
                                       isContentHDR, depthInverted, YAxisInverted,
                                       motionVetorsJittered, enableSharpening,
                                       enableAutoExposure, format);
-    }
-
-    if (g_useOriginal && g_original && g_original->isLoaded()) {
-        return g_original->simpleInit(id, upscaleMethod, qualityLevel, displaySizeX, displaySizeY,
-                                       isContentHDR, depthInverted, YAxisInverted,
-                                       motionVetorsJittered, enableSharpening,
-                                       enableAutoExposure, format);
     }
 
     ID3D12Resource* fallback = createFallbackTexture(displaySizeX, displaySizeY, format);
@@ -133,7 +115,7 @@ void* __stdcall InitUpscaler(InitParams* params) {
                   params->id, params->upscaleMethod, params->qualityLevel,
                   params->displaySizeX, params->displaySizeY, params->format);
 
-    if (!g_useOriginal && g_fsr4 && g_fsr4->isAvailable()) {
+    if (g_fsr4 && g_fsr4->isAvailable()) {
         Logging::info("InitUpscaler: Using FSR4 backend");
         return g_fsr4->createContext(params->id, params->upscaleMethod, params->qualityLevel,
                                       params->displaySizeX, params->displaySizeY,
@@ -141,16 +123,6 @@ void* __stdcall InitUpscaler(InitParams* params) {
                                       params->YAxisInverted, params->motionVetorsJittered,
                                       params->enableSharpening, params->enableAutoExposure,
                                       params->format);
-    }
-
-    if (g_useOriginal && g_original && g_original->isLoaded()) {
-        Logging::info("InitUpscaler: Using original PDPerfPlugin");
-        return g_original->simpleInit(params->id, params->upscaleMethod, params->qualityLevel,
-                                       params->displaySizeX, params->displaySizeY,
-                                       params->isContentHDR, params->depthInverted, 
-                                       params->YAxisInverted, params->motionVetorsJittered,
-                                       params->enableSharpening, params->enableAutoExposure,
-                                       params->format);
     }
 
     Logging::error("InitUpscaler: No backend available!");
@@ -167,18 +139,11 @@ void __stdcall SimpleEvaluate(int id, void* color, void* motionVector, void* dep
                                float jitterOffsetX, float jitterOffsetY, int motionScaleX, int motionScaleY,
                                bool reset, float nearPlane, float farPlane, float verticalFOV, bool execute) {
     initialize();
-    if (!g_useOriginal && g_fsr4 && g_fsr4->isReady()) {
+    if (g_fsr4 && g_fsr4->isReady()) {
         g_fsr4->evaluate(id, color, motionVector, depth, destination, renderSizeX, renderSizeY,
                           sharpness, jitterOffsetX, jitterOffsetY, (float)motionScaleX, (float)motionScaleY,
                           reset, nearPlane, farPlane, verticalFOV, execute, nullptr);
         return;
-    }
-
-    if (g_useOriginal && g_original && g_original->isLoaded()) {
-        g_original->simpleEvaluate(id, color, motionVector, depth, mask, destination,
-                                    renderSizeX, renderSizeY, sharpness,
-                                    jitterOffsetX, jitterOffsetY, motionScaleX, motionScaleY,
-                                    reset, nearPlane, farPlane, verticalFOV, execute);
     }
 }
 
@@ -188,37 +153,30 @@ void __stdcall EvaluateUpscaler(UpscaleParams* params) {
 
     static bool s_loggedOnce = false;
     if (!s_loggedOnce) {
-        Logging::info("EvaluateUpscaler: useOriginal=%d fsr4=%p ready=%d",
-                      (int)g_useOriginal, (void*)g_fsr4, g_fsr4 ? (int)g_fsr4->isReady() : -1);
+        Logging::info("EvaluateUpscaler: fsr4=%p ready=%d",
+                      (void*)g_fsr4, g_fsr4 ? (int)g_fsr4->isReady() : -1);
         s_loggedOnce = true;
     }
 
-    if (!g_useOriginal && g_fsr4 && g_fsr4->isReady()) {
+    if (g_fsr4 && g_fsr4->isReady()) {
         g_fsr4->evaluate(params);
         return;
-    }
-
-    if (g_useOriginal && g_original && g_original->isLoaded()) {
-        g_original->evaluateUpscaler(params);
     }
 }
 
 void __stdcall SetMotionScaleX(int id, float motionScaleX) {
     initialize();
-    if (!g_useOriginal && g_fsr4) { g_fsr4->setMotionScaleX(id, motionScaleX); return; }
-    if (g_useOriginal && g_original) g_original->setMotionScaleX(id, motionScaleX);
+    if (g_fsr4) { g_fsr4->setMotionScaleX(id, motionScaleX); return; }
 }
 
 void __stdcall SetMotionScaleY(int id, float motionScaleX) {
     initialize();
-    if (!g_useOriginal && g_fsr4) { g_fsr4->setMotionScaleY(id, motionScaleX); return; }
-    if (g_useOriginal && g_original) g_original->setMotionScaleY(id, motionScaleX);
+    if (g_fsr4) { g_fsr4->setMotionScaleY(id, motionScaleX); return; }
 }
 
 int __stdcall GetRenderWidth(int id) {
     initialize();
-    if (!g_useOriginal && g_fsr4) return g_fsr4->getRenderWidth(id);
-    if (g_useOriginal && g_original) return g_original->getRenderWidth(id);
+    if (g_fsr4) return g_fsr4->getRenderWidth(id);
     auto it = g_fallbackTextures.find(id);
     if (it != g_fallbackTextures.end()) {
         D3D12_RESOURCE_DESC desc = it->second->GetDesc();
@@ -229,8 +187,7 @@ int __stdcall GetRenderWidth(int id) {
 
 int __stdcall GetRenderHeight(int id) {
     initialize();
-    if (!g_useOriginal && g_fsr4) return g_fsr4->getRenderHeight(id);
-    if (g_useOriginal && g_original) return g_original->getRenderHeight(id);
+    if (g_fsr4) return g_fsr4->getRenderHeight(id);
     auto it = g_fallbackTextures.find(id);
     if (it != g_fallbackTextures.end()) {
         D3D12_RESOURCE_DESC desc = it->second->GetDesc();
@@ -241,27 +198,24 @@ int __stdcall GetRenderHeight(int id) {
 
 float __stdcall GetOptimalSharpness(int id) {
     initialize();
-    if (!g_useOriginal && g_fsr4) return g_fsr4->getOptimalSharpness(id);
-    if (g_useOriginal && g_original) return g_original->getOptimalSharpness(id);
+    if (g_fsr4) return g_fsr4->getOptimalSharpness(id);
     return 0.5f;
 }
 
 float __stdcall GetOptimalMipmapBias(int id) {
     initialize();
-    if (!g_useOriginal && g_fsr4) return g_fsr4->getOptimalMipmapBias(id);
-    if (g_useOriginal && g_original) return g_original->getOptimalMipmapBias(id);
+    if (g_fsr4) return g_fsr4->getOptimalMipmapBias(id);
     return 0.0f;
 }
 
 void __stdcall SetDebug(bool debug) {
     initialize();
-    if (g_original) g_original->setDebug(debug);
+    (void)debug;
 }
 
 void __stdcall ReleaseUpscaleFeature(int id) {
     initialize();
-    if (!g_useOriginal && g_fsr4) { g_fsr4->release(id); return; }
-    if (g_useOriginal && g_original) { g_original->releaseUpscaleFeature(id); return; }
+    if (g_fsr4) { g_fsr4->release(id); return; }
     auto it = g_fallbackTextures.find(id);
     if (it != g_fallbackTextures.end()) {
         it->second->Release();
@@ -272,28 +226,24 @@ void __stdcall ReleaseUpscaleFeature(int id) {
 
 int __stdcall GetJitterPhaseCount(int id) {
     initialize();
-    if (!g_useOriginal && g_fsr4) return g_fsr4->getJitterPhaseCount(id);
-    if (g_useOriginal && g_original) return g_original->getJitterPhaseCount(id);
+    if (g_fsr4) return g_fsr4->getJitterPhaseCount(id);
     return 1;
 }
 
 int __stdcall GetJitterOffset(float* outX, float* outY, int index, int phaseCount) {
     initialize();
-    if (!g_useOriginal && g_fsr4) return g_fsr4->getJitterOffset(0, outX, outY, index, phaseCount);
-    if (g_useOriginal && g_original) return g_original->getJitterOffset(outX, outY, index, phaseCount);
+    if (g_fsr4) return g_fsr4->getJitterOffset(0, outX, outY, index, phaseCount);
     return -1;
 }
 
 void __stdcall InitLogDelegate(void (*Log)(char* message, int iSize)) {
     initialize();
     g_logDelegate = Log;
-    if (g_original && g_original->isLoaded())
-        g_original->initLogDelegate(Log);
 }
 
 bool __stdcall IsUpscaleMethodAvailable(int upscaleMethod) {
     initialize();
-    if (!g_useOriginal && g_fsr4) {
+    if (g_fsr4) {
         // REFramework's TemporalUpscaler enumerates the dropdown once, during
         // on_initialize -- which runs BEFORE the game calls SetupDirectX, so
         // g_fsr4->isAvailable() is frequently still false at that point. Both
@@ -304,7 +254,6 @@ bool __stdcall IsUpscaleMethodAvailable(int upscaleMethod) {
             return g_fsr4->isMethodAvailable(upscaleMethod);
         return upscaleMethod == 1; // AMD FSR 3 only, even before backend is up
     }
-    if (g_useOriginal && g_original) return g_original->isUpscaleMethodAvailable(upscaleMethod);
     return false;
 }
 
@@ -312,7 +261,7 @@ char* __stdcall GetUpscaleMethodName(int upscaleMethod) {
     static thread_local char nameBuf[64];
     initialize();
 
-    if (!g_useOriginal && g_fsr4) {
+    if (g_fsr4) {
         if (g_fsr4->isAvailable()) {
             const char* name = g_fsr4->getMethodName(upscaleMethod);
             strncpy_s(nameBuf, name, sizeof(nameBuf) - 1);
@@ -326,7 +275,6 @@ char* __stdcall GetUpscaleMethodName(int upscaleMethod) {
         nameBuf[0] = '\0';
         return nameBuf;
     }
-    if (g_useOriginal && g_original) return g_original->getUpscaleMethodName(upscaleMethod);
 
     nameBuf[0] = '\0';
     return nameBuf;
