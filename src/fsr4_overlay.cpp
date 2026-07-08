@@ -129,12 +129,13 @@ static int fontIndexFor(char c) {
 }
 
 // Stamp `str` into px (a w x h R10G10B10A2 buffer) starting at (x0,y0), in
-// `color`. Glyphs are 5 wide; a 1px column gap yields 6px advance. Bit0 of a
-// row byte is column 0 (left), so we test (bits >> col) & 1. Out-of-range
-// writes are clipped. Returns the x just past the last glyph (for caller use).
-static int drawString(std::vector<uint32_t>& px, int w, int h, int x0, int y0,
-                      const char* str, uint32_t color) {
-    if (!str) return x0;
+// `color`. Each 5x7 glyph pixel is expanded to `scale`x`scale` blocks so the
+// badge stays legible when copied 1:1 into a full-resolution backbuffer.
+// Bit0 of a row byte is column 0 (left), so we test (bits >> col) & 1.
+// Out-of-range writes are clipped. Returns the x just past the last glyph.
+static int drawStringScaled(std::vector<uint32_t>& px, int w, int h, int x0, int y0,
+                            const char* str, uint32_t color, int scale) {
+    if (!str || scale < 1) return x0;
     int x = x0;
     for (const char* p = str; *p; ++p) {
         const uint8_t* g = FONT[fontIndexFor(*p)];
@@ -142,13 +143,18 @@ static int drawString(std::vector<uint32_t>& px, int w, int h, int x0, int y0,
             uint8_t bits = g[row];
             for (int col = 0; col < 5; ++col) {
                 if ((bits >> col) & 1) {
-                    int gx = x + col, gy = y0 + row;
-                    if (gx >= 0 && gx < w && gy >= 0 && gy < h)
-                        px[(size_t)gy * w + gx] = color;
+                    for (int dy = 0; dy < scale; ++dy) {
+                        int gy = y0 + row * scale + dy;
+                        for (int dx = 0; dx < scale; ++dx) {
+                            int gx = x + col * scale + dx;
+                            if (gx >= 0 && gx < w && gy >= 0 && gy < h)
+                                px[(size_t)gy * w + gx] = color;
+                        }
+                    }
                 }
             }
         }
-        x += 6; // 5px glyph + 1px gap
+        x += 6 * scale; // 5px glyph + 1px gap, scaled
     }
     return x;
 }
@@ -289,17 +295,35 @@ ID3D12Resource* createWatermarkTexture(ID3D12Device* dev, ID3D12CommandQueue* qu
                                         int& outW, int& outH, DXGI_FORMAT targetFmt,
                                         const char* fsrVersion, const char* qualityLevelName) {
     // Two-line badge: line 1 = FSR version, line 2 = upscaling quality level.
-    // Each line is a 5x7 font; 6px advance -> 18 chars max fit the 110px width.
-    const int w = 110, h = 24;
-    const uint32_t green = 0xC00FFC00; // ABGR opaque GREEN (R10G10B10A2)
-    const uint32_t black = 0xFF000000;
+    // Glyphs are scaled up (SCALE x) so the badge stays readable when copied
+    // 1:1 into a full-res backbuffer (5px text is invisible on 1080p+). A solid
+    // dark panel sits behind the text for contrast over any scene — the
+    // standard verification-watermark look.
+    const int SCALE = 3;
+    const int GLYPH_W = 5 * SCALE;        // 15px per glyph cell (incl. 1px gap)
+    const int GLYPH_H = 7 * SCALE;        // 21px per line
+    const int PAD     = 8 * SCALE;        // 24px inner padding
+    const int LINE_GAP = 6 * SCALE;       // 18px between the two lines
+    const uint32_t TEXT  = 0xC00FFC00;    // ABGR opaque GREEN (R10G10B10A2)
+    const uint32_t PANEL = 0xEE101010;    // ABGR near-opaque dark backing
 
-    std::vector<uint32_t> px((size_t)w * h, black);
+    auto lineWidth = [&](const char* s) -> int {
+        int n = s ? (int)strlen(s) : 0;
+        return n > 0 ? n * GLYPH_W : 0;
+    };
+    int wText = lineWidth(fsrVersion);
+    int qw = lineWidth(qualityLevelName);
+    if (qw > wText) wText = qw;
+    int w = wText + PAD * 2;
+    int h = PAD * 2 + GLYPH_H * 2 + LINE_GAP;
 
-    // Line 1 (y=2..8): version string, e.g. "FSR4 V4.1.1"
-    drawString(px, w, h, 2, 2, fsrVersion, green);
-    // Line 2 (y=13..19): quality preset, e.g. "BALANCED"
-    drawString(px, w, h, 2, 13, qualityLevelName, green);
+    std::vector<uint32_t> px((size_t)w * h, PANEL);
+
+    // Line 1 (FSR version) and line 2 (quality preset), vertically centered.
+    int y1 = PAD;
+    int y2 = PAD + GLYPH_H + LINE_GAP;
+    drawStringScaled(px, w, h, PAD, y1, fsrVersion,         TEXT, SCALE);
+    drawStringScaled(px, w, h, PAD, y2, qualityLevelName,   TEXT, SCALE);
 
     ID3D12Resource* tex = createTexFromPixels(dev, queue, w, h, targetFmt, px);
     if (tex) { outW = w; outH = h; }
