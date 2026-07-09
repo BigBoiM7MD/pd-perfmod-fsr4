@@ -43,6 +43,35 @@ static constexpr uint64_t MAKE_BACKEND_SUB_ID(uint64_t b, uint64_t s) { return (
 static constexpr uint64_t FFX_API_BACKEND_ID_DX12                      = 0x00000000u;
 static constexpr uint64_t FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12 = MAKE_BACKEND_SUB_ID(FFX_API_BACKEND_ID_DX12, 2);
 
+// Output format override (read from pd-perfmod-fsr4.ini [Backend] OutputFormat).
+// 0 = use REFramework's requested format verbatim (default / safe).
+// 28 = force R8G8B8A8_UNORM (RGBA), 87 = force B8G8R8A8_UNORM (BGRA),
+// 24 = force R10G10B10A2_UNORM (HDR), etc. Lets the user A/B the exact
+// output texture format without a rebuild, to pin down the red<->blue swap.
+static int s_outputFormatOverride = 0; // 0 => no override
+
+static void readBackendIni() {
+    char dllDir[MAX_PATH]; dllDir[0] = '\0';
+    HMODULE mod = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            (LPCSTR)&readBackendIni, &mod) && mod) {
+        char path[MAX_PATH];
+        GetModuleFileNameA(mod, path, MAX_PATH);
+        strncpy_s(dllDir, path, MAX_PATH - 1);
+        for (int i = (int)strlen(dllDir) - 1; i >= 0; i--)
+            if (dllDir[i] == '\\') { dllDir[i] = '\0'; break; }
+    } else {
+        GetCurrentDirectoryA(MAX_PATH, dllDir);
+    }
+    char iniPath[MAX_PATH];
+    sprintf_s(iniPath, "%s\\pd-perfmod-fsr4.ini", dllDir);
+    char buf[32] = { 0 };
+    GetPrivateProfileStringA("Backend", "OutputFormat", "0", buf, sizeof(buf), iniPath);
+    s_outputFormatOverride = atoi(buf);
+    Logging::info("FSR4Backend: ini Backend.OutputFormat=%d (0=use requested)", s_outputFormatOverride);
+}
+
 // Upscale sub-IDs
 static constexpr uint64_t FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE              = MAKE_EFFECT_SUB_ID(FFX_API_EFFECT_ID_UPSCALE, 0x00);
 static constexpr uint64_t FFX_API_DISPATCH_DESC_TYPE_UPSCALE                    = MAKE_EFFECT_SUB_ID(FFX_API_EFFECT_ID_UPSCALE, 0x01);
@@ -305,12 +334,21 @@ static void messageCallback(uint32_t type, const wchar_t* message) {
 
 bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
     Logging::info("FSR4Backend::setup(graphicsAPI=%d)", graphicsAPI);
+    readBackendIni();
     m_impl->graphicsAPI = graphicsAPI;
     if (graphicsAPI == 0) {
         Logging::warn("FSR4Backend: D3D11 not supported, need D3D12");
         return false;
     }
 
+    // Guard the entire init path. REFramework calls this from a __stdcall export
+    // during on_initialize(); any C++ exception or SEH (access violation) inside
+    // the D3D12/DXGI/FFX calls must NOT escape into REFramework or the game dies.
+    // /EHa (set in CMakeLists.txt) makes catch(...) trap SEH too. On native
+    // Windows nothing here throws; under Wine/Proton a virtualized DXGI or an
+    // AV inside the AMD loader is caught and FSR4 cleanly disables instead of
+    // crashing. (Matches the try/catch already around evaluate().)
+    try {
     ID3D12CommandQueue* queue = (ID3D12CommandQueue*)deviceOrQueue;
     if (queue) {
         if (FAILED(queue->GetDevice(IID_PPV_ARGS(&m_impl->device)))) {
@@ -381,8 +419,6 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
     m_impl->device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_impl->fence));
     m_impl->fenceEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
 
-    m_impl->available = true;
-
     // Enumerate the FSR versions this GPU actually supports and remember the
     // newest one, so every context we create runs a version the GPU can do
     // (FSR4 4.1.1 if it can, else FSR3.1, ...). Without this, requesting 4.1.1
@@ -393,7 +429,23 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
     // the preset actually loading, so we never spam before init succeeds).
     logSystemInfo();
 
+    m_impl->available = true;
     return true;
+    } catch (const std::exception& e) {
+        Logging::error("=============================================================");
+        Logging::error("FSR4Backend: setup() threw: %s", e.what());
+        Logging::error("FSR4 disabled this run; the game will use its native upscaler.");
+        Logging::error("=============================================================");
+        m_impl->available = false;
+        return false;
+    } catch (...) {
+        Logging::error("=============================================================");
+        Logging::error("FSR4Backend: setup() threw an unknown exception (SEH/AV?).");
+        Logging::error("FSR4 disabled this run; the game will use its native upscaler.");
+        Logging::error("=============================================================");
+        m_impl->available = false;
+        return false;
+    }
 }
 
 // Enumerate the FSR versions THIS GPU supports and store the newest (highest
@@ -480,6 +532,10 @@ void FSR4Backend::logSystemInfo() {
     // whose AdapterLuid equals the device's LUID, so we never confuse the
     // hardware GPU with the WARP/Microsoft Basic Render Driver.
     if (m_impl->device) {
+        // Wine/Proton virtualizes DXGI; EnumAdapters / GetDesc / LUID matching
+        // can throw or mismatch. A failure here is cosmetic (we just lose the
+        // GPU name), so never let it abort setup() -> FSR4 must still init.
+        try {
         LUID devLuid = m_impl->device->GetAdapterLuid();
         IDXGIFactory4* factory = nullptr;
         if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
@@ -503,6 +559,9 @@ void FSR4Backend::logSystemInfo() {
             }
             if (matched) matched->Release();
             factory->Release();
+        }
+        } catch (...) {
+            strncpy_s(gpuName, "<unknown GPU (DXGI probe failed)>", sizeof(gpuName) - 1);
         }
     }
 
@@ -624,7 +683,18 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     Logging::info("FSR4Backend: Calling ffxCreateContext...");
 
     ffxContext ffxCtx = nullptr;
-    ffxReturnCode_t ret = m_impl->ffxCreateContextFn(&ffxCtx, &upscaleDesc.header, nullptr);
+    ffxReturnCode_t ret = 0;
+    // Guard the loader call: under Wine/Proton an AV inside the AMD loader must
+    // not escape into REFramework (which calls this from InitUpscaler/SimpleInit).
+    try {
+        ret = m_impl->ffxCreateContextFn(&ffxCtx, &upscaleDesc.header, nullptr);
+    } catch (const std::exception& e) {
+        Logging::error("FSR4Backend: ffxCreateContext threw: %s", e.what());
+        return nullptr;
+    } catch (...) {
+        Logging::error("FSR4Backend: ffxCreateContext threw an unknown exception (SEH/AV?)");
+        return nullptr;
+    }
 
     Logging::info("FSR4Backend: ffxCreateContext returned ret=%d ctx=%p", ret, ffxCtx);
 
@@ -667,7 +737,16 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     texDesc.Height             = (UINT)displaySizeY;
     texDesc.DepthOrArraySize   = 1;
     texDesc.MipLevels          = 1;
-    texDesc.Format             = (DXGI_FORMAT)format;
+    // Output texture format. Use REFramework's requested format by default.
+    // If the user set [Backend] OutputFormat in the INI (non-zero), override
+    // it -- this is the A/B lever for the red<->blue swap (no rebuild needed).
+    // The DXGI_FORMAT tag tells D3D12 how to interpret the texels; what
+    // FFX4 actually writes into them is fixed by its pipeline, so flipping this
+    // alone may not fix a channel swap -- but it's the first thing to confirm.
+    uint32_t outFmt = (uint32_t)format;
+    if (s_outputFormatOverride != 0)
+        outFmt = (uint32_t)s_outputFormatOverride;
+    texDesc.Format             = (DXGI_FORMAT)outFmt;
     texDesc.SampleDesc.Count   = 1;
     texDesc.SampleDesc.Quality = 0;
     texDesc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -686,6 +765,7 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     }
 
     ctx.outputTexture = outputTexture;
+    ctx.format        = (int)outFmt; // store the ACTUAL created format, not just requested
     m_impl->contexts[id] = ctx;
 
     // REFramework reads this texture as m_upscaled_textures[id-1] (see

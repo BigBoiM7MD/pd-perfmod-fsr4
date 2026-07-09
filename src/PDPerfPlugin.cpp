@@ -8,6 +8,9 @@
 #include <unordered_map>
 #include <map>
 
+// Defined in Logging.cpp (SEH-guarded). extern so it links across TUs.
+extern void safeStderrWarn(const char* fmt, ...);
+
 static FSR4Backend* g_fsr4 = nullptr;
 static bool g_initialized = false;
 static void (*g_logDelegate)(char*, int) = nullptr;
@@ -24,10 +27,33 @@ static void initialize() {
     if (g_initialized) return;
     g_initialized = true;
 
-    Logging::init();
-    Logging::info("pd-perfmod-fsr4 initializing...");
-
-    g_fsr4 = new FSR4Backend();
+    // EXPORT-GUARDED. REFramework calls IsUpscaleMethodAvailable /
+    // GetUpscaleMethodName from TemporalUpscaler::on_initialize() *before*
+    // SetupDirectX runs, so this runs during load on the game thread. If
+    // Logging::init() (file INI/log open) or the constructor throws under
+    // Wine/Proton, the exception would escape the __stdcall export and kill
+    // REFramework ("Initialization of mods failed. Reason: exception thrown"),
+    // with no FSR4Backend log line because setup() was never reached. Guard
+    // it. /EHa (CMakeLists.txt) makes catch(...) trap SEH/AV too. If init
+    // fails we stay g_initialized=true but g_fsr4 stays null -> every export
+    // already null-guards on g_fsr4 and degrades to "no backend available"
+    // instead of crashing. Re-apply the same guard around the real init work
+    // below if it is ever made non-idempotent.
+    try {
+        Logging::init();
+        Logging::info("pd-perfmod-fsr4 initializing...");
+        g_fsr4 = new FSR4Backend();
+    } catch (const std::exception& e) {
+        // Logging may be unavailable (it threw) -> fallback to stderr so the
+        // failure is never fully silent. Routed via safeStderrWarn() so a bad
+        // stderr handle under a headless Proton launch can't raise SEH mid-
+        // unwind (which would terminate()).
+        safeStderrWarn("[PDPerfPlugin] initialize() threw: %s\n", e.what());
+        g_fsr4 = nullptr;
+    } catch (...) {
+        safeStderrWarn("[PDPerfPlugin] initialize() threw unknown exception (SEH/AV?)\n");
+        g_fsr4 = nullptr;
+    }
 }
 
 static ID3D12Resource* createFallbackTexture(int displaySizeX, int displaySizeY, int format) {
@@ -70,7 +96,7 @@ bool __stdcall SetupDirectX(void* item, int graphicsAPI) {
         }
     }
 
-    if (g_fsr4->setup(item, graphicsAPI)) {
+    if (g_fsr4 && g_fsr4->setup(item, graphicsAPI)) {
         Logging::info("FSR 4 backend ready");
         return true;
     }

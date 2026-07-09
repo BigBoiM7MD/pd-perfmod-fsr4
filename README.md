@@ -86,6 +86,19 @@ Get-Content "path\to\pd-perfmod-fsr4.log" -Wait -Tail 20
   "replaced puredark's plugin / separated the UI from the upscaling path"; that
   was false and has been removed.)
 
+## Linux / Proton
+FSR4 (via the AMD loader) **can** run on newer Proton / community Proton forks
+(e.g. Proton-GE) with DXVK — it is not Windows-only. If REFramework threw an
+exception and stopped working while loading the plugin under Wine/Proton, that
+was a bug in this plugin's init path: the load-time exports
+(`SetupDirectX`/`InitUpscaler`/`SimpleInit`) were not exception-guarded, so a
+failure inside the D3D12/DXGI/FFX calls escaped into REFramework and took down
+the game. The init path is now wrapped in the same `try/catch` used by
+`evaluate()`, so any failure cleanly disables FSR4 (the game falls back to its
+own upscaler) instead of crashing. On native Windows behavior is unchanged.
+If FSR4 still fails to start under Proton, the `pd-perfmod-fsr4.log` will now
+say exactly which call threw — send that line over.
+
 ## How it works
 - **FSR 4 first** — at runtime the plugin loads the AMD FidelityFX loader
   (`amd_fidelityfx_loader_dx12.dll`) plus the FSR4 upscaler payload through the
