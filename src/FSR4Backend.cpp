@@ -940,15 +940,31 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     //     (not a clean R/B swap) because it's the wrong present format; 87
     //     produced ONLY a clean R/B swap (correct format, wrong byte order) and
     //     is PERFECT once the swap pass reorders FSR's RGBA bytes to BGRA.
-    //     So the auto-default is 87 (BGRA). The R/B swap pass is still
-    //     run (it turns FSR's RGBA bytes into BGRA-ordered bytes) for robustness,
-    //     matching the vkd3d present swizzle. The INI [Backend] OutputFormat (if
-    //     non-zero) always overrides this.
-    uint32_t outFmt = isRunningUnderWine()
-        ? (uint32_t)DXGI_FORMAT_B8G8R8A8_UNORM       // 87 - Linux/Proton (BGRA present)
-        : (uint32_t)format;                          // Windows - backbuffer fmt
-    const char* how = isRunningUnderWine() ? " (auto: Wine/Proton BGRA)"
-                                           : " (auto: Windows backbuffer)";
+    //     So the SDR auto-default is 87 (BGRA) + swap pass.
+    //   * HDR: if the backbuffer is HDR-capable (R10G10B10A2=24 or
+    //     R16G16B16A16_FLOAT=10) we keep that container and skip the swap (it
+    //     goes through vkd3d's converting copy path, not the raw 8-bit path, so
+    //     no R/B flip is needed - matches the in-game result that 10=clean
+    //     colors). REFramework still hardcodes isContentHDR=false so FSR itself
+    //     runs SDR; this only preserves the HDR container end-to-end.
+    //     The INI [Backend] OutputFormat (if non-zero) always overrides this.
+    uint32_t outFmt;
+    const char* how;
+    if (isRunningUnderWine()) {
+        const bool backbufferHDR =
+            (format == (uint32_t)DXGI_FORMAT_R10G10B10A2_UNORM) ||
+            (format == (uint32_t)DXGI_FORMAT_R16G16B16A16_FLOAT);
+        if (backbufferHDR) {
+            outFmt = (uint32_t)format;            // keep HDR container, no swap
+            how = " (auto: Wine/Proton HDR, no swap)";
+        } else {
+            outFmt = (uint32_t)DXGI_FORMAT_B8G8R8A8_UNORM; // 87 BGRA present + swap
+            how = " (auto: Wine/Proton BGRA)";
+        }
+    } else {
+        outFmt = (uint32_t)format;                // Windows - backbuffer fmt
+        how = " (auto: Windows backbuffer)";
+    }
     if (s_outputFormatOverride != 0) {
         outFmt = (uint32_t)s_outputFormatOverride;
         how = " (INI override)";
@@ -983,8 +999,9 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     // (B,G,R,A) swizzle at present (vkd3d_src/command.c:11017 CopyResource
     // byte-depth guard + present swizzle). FSR always writes RGBA-order bytes,
     // so for any 32bpp 4-channel UNORM output (28 or 87) we must hand back
-    // BGRA-ordered bytes. 10 (float16, 64bpp) is dropped by the CopyResource
-    // byte-depth guard, so it is left alone. Native Windows backbuffer is
+    // BGRA-ordered bytes. HDR formats (24=R10G10B10A2, 10=R16G16B16A16_FLOAT)
+    // take the converting copy path (not raw 8-bit) and need no swap, so the
+    // gate below intentionally skips them. Native Windows backbuffer is
     // whatever REFramework passed (already correct) -> skip.
     void* returnTexture = outputTexture;
     if (isRunningUnderWine() &&
