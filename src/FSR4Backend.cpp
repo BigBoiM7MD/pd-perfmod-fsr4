@@ -1170,7 +1170,7 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         float s = sharpness;
         if (s < 0.0f) s = 0.0f;
         if (s > 1.0f) s = 1.0f;
-        if (ctx.enableSharpening && s <= 0.0f) s = 0.8f; // toggle on, amount at default 0 -> apply moderate RCAS
+        if (ctx.enableSharpening && s <= 0.0f) s = 0.4f; // toggle on, amount at default 0 -> gentle RCAS (was 0.8: too strong)
         dd.sharpness = s;
     }
     dd.frameTimeDelta          = 16.6f;
