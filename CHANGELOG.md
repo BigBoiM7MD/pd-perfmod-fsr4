@@ -53,8 +53,6 @@ First public version.
 - **Exception-guarded init path** — a load-time failure (missing loader DLL,
   etc.) cleanly disables FSR4 instead of crashing REFramework / the game.
 - **Live, tail-able log** (unbuffered, written next to the DLL).
-- **Linux/Proton support** at the basic level (loads and runs under Proton-GE +
-  DXVK).
 
 ### Notes
 - Correct Linux color handling and HDR container support landed in `0.1.1`.
