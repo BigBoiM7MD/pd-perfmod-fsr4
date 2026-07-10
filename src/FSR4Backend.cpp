@@ -69,7 +69,21 @@ static void readBackendIni() {
     char buf[32] = { 0 };
     GetPrivateProfileStringA("Backend", "OutputFormat", "0", buf, sizeof(buf), iniPath);
     s_outputFormatOverride = atoi(buf);
-    Logging::info("FSR4Backend: ini Backend.OutputFormat=%d (0=use requested)", s_outputFormatOverride);
+    Logging::info("FSR4Backend: ini Backend.OutputFormat=%d (0=auto-detect)", s_outputFormatOverride);
+}
+
+// True when running under Wine/Proton (Linux) rather than native Windows.
+// Detected via the wine_get_version export that Wine/Proton always add to ntdll;
+// it is absent on genuine Windows. Cached after first call. This is the standard,
+// documented Wine-detection method and needs no special privileges.
+static bool isRunningUnderWine() {
+    static int cached = -1;
+    if (cached >= 0) return cached != 0;
+    cached = 0;
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    if (ntdll && GetProcAddress(ntdll, "wine_get_version"))
+        cached = 1;
+    return cached != 0;
 }
 
 // Upscale sub-IDs
@@ -737,15 +751,26 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     texDesc.Height             = (UINT)displaySizeY;
     texDesc.DepthOrArraySize   = 1;
     texDesc.MipLevels          = 1;
-    // Output texture format. Use REFramework's requested format by default.
-    // If the user set [Backend] OutputFormat in the INI (non-zero), override
-    // it -- this is the A/B lever for the red<->blue swap (no rebuild needed).
-    // The DXGI_FORMAT tag tells D3D12 how to interpret the texels; what
-    // FFX4 actually writes into them is fixed by its pipeline, so flipping this
-    // alone may not fix a channel swap -- but it's the first thing to confirm.
-    uint32_t outFmt = (uint32_t)format;
-    if (s_outputFormatOverride != 0)
+    // Output texture format. There is NO single universal value:
+    //   * Native Windows: the backbuffer format REFramework passes (e.g. 24,
+    //     R10G10B10A2_UNORM) works and matches the swap chain. Forcing float16
+    //     here CRASHES on Windows.
+    //   * Linux/Proton (vkd3d-proton): R10G10B10A2 as a typed-UAV store target is
+    //     not reliably supported, so FSR must output R16G16B16A16_FLOAT (10);
+    //     using the backbuffer value gives swapped colors / failure.
+    // So we auto-detect: float16 under Wine/Proton, backbuffer value on Windows.
+    // The INI [Backend] OutputFormat (if non-zero) always overrides this.
+    uint32_t outFmt = isRunningUnderWine()
+        ? (uint32_t)DXGI_FORMAT_R16G16B16A16_FLOAT  // 10 - Linux/Proton
+        : (uint32_t)format;                          // Windows - backbuffer fmt
+    const char* how = isRunningUnderWine() ? " (auto: Wine/Proton float16)"
+                                           : " (auto: Windows backbuffer)";
+    if (s_outputFormatOverride != 0) {
         outFmt = (uint32_t)s_outputFormatOverride;
+        how = " (INI override)";
+    }
+    Logging::info("FSR4Backend: output format backbuffer=%d -> using=%d%s",
+                  (int)format, (int)outFmt, how);
     texDesc.Format             = (DXGI_FORMAT)outFmt;
     texDesc.SampleDesc.Count   = 1;
     texDesc.SampleDesc.Quality = 0;
