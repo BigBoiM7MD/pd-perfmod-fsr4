@@ -1161,17 +1161,18 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
     dd.enableSharpening        = ctx.enableSharpening;
     // REFramework's "Sharpness Amount" slider is authored for FSR3 and ranges
     // 0.0..5.0, defaulting to 0.0. The FFX upscale API (ffx_upscale.h) defines
-    // `sharpness` as 0..1 (1 = max RCAS). So we (a) NORMALIZE the slider's
-    // 0..5 range into 0..1 (not a hard clamp — a clamp would crush the whole
-    // slider into the bottom fifth), and (b) if the user enabled the "Sharpness"
-    // toggle but left the amount at its 0.0 default, fall back to a gentle 0.4
-    // RCAS so the toggle isn't a dead switch. This is the fix for "the sharpness
-    // slider does nothing" — it was being forwarded as 0.0 the whole time.
+    // `sharpness` as 0..1 (1 = max RCAS). We LINEARLY normalize the whole
+    // 0..5 slider into 0..1 (s /= 5.0 for any value above 0) so the knob tracks
+    // RCAS evenly end-to-end — no confusing split mapping. If the user enabled
+    // the "Sharpness" toggle but left the amount at its 0.0 default, fall back
+    // to a gentle 0.4 RCAS so the toggle isn't a dead switch. Fix for "the
+    // sharpness slider does nothing" — it was being forwarded as 0.0 the whole
+    // time.
     {
         float s = sharpness;
         if (s < 0.0f) s = 0.0f;
-        // REFramework slider max is 5.0 -> map to FFX max 1.0.
-        if (s > 1.0f) s /= 5.0f;
+        // REFramework slider max is 5.0 -> map linearly to FFX max 1.0.
+        if (s > 0.0f) s /= 5.0f;
         if (ctx.enableSharpening && s <= 0.0f) s = 0.4f; // toggle on, amount at default 0 -> gentle RCAS
         dd.sharpness = s;
     }
