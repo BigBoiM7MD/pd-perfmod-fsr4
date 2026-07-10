@@ -931,19 +931,20 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     //   * Native Windows: the backbuffer format REFramework passes (e.g. 24,
     //     R10G10B10A2_UNORM) works and matches the swap chain. Forcing another
     //     format here CRASHES on Windows, so we use the backbuffer value as-is.
-    //   * Linux/Proton (vkd3d-proton): REFramework's backbuffer GetDesc() reports
-    //     R8G8B8A8 (28/RGBA), but the swapchain actually PRESENTS as B8G8R8A8
-    //     (BGRA) - a dxgi/vkd3d quirk. REFramework then raw-copies our output
-    //     (vkCmdCopyImage2, no reorder) into that BGRA-presenting backbuffer.
-    //     So we output R8G8B8A8 (28, what FSR4 writes natively) and run a compute
-    //     pass that swaps R<->B so the bytes are BGRA-ordered before the copy.
-    //     This is what makes colors correct (your test: 10/float16 looked right
-    //     color-wise, 28/87 were R/B-swapped -> confirms a BGRA-present backbuffer).
-    // The INI [Backend] OutputFormat (if non-zero) always overrides this.
+    //   * Linux/Proton (vkd3d-proton): the swapchain PRESENTS as B8G8R8A8 (87/
+    //     BGRA) even though backbuffer->GetDesc() reports R8G8B8A8 (28/RGBA) - a
+    //     dxgi/vkd3d quirk (vkd3d canonicalizes the present image to RGBA8
+    //     internally and applies a (B,G,R,A) present swizzle). REFramework then
+    //     raw-copies our output (vkCmdCopyImage2, no reorder) into that backbuffer.
+    //     Empirically (in-game): default 28 + swap was BROKEN; 87 + swap is
+    //     PERFECT. So the auto-default is 87 (BGRA). The R/B swap pass is still
+    //     run (it turns FSR's RGBA bytes into BGRA-ordered bytes) for robustness,
+    //     matching the vkd3d present swizzle. The INI [Backend] OutputFormat (if
+    //     non-zero) always overrides this.
     uint32_t outFmt = isRunningUnderWine()
-        ? (uint32_t)DXGI_FORMAT_R8G8B8A8_UNORM       // 28 - Linux/Proton (RGBA; R/B swapped pre-copy)
+        ? (uint32_t)DXGI_FORMAT_B8G8R8A8_UNORM       // 87 - Linux/Proton (BGRA present)
         : (uint32_t)format;                          // Windows - backbuffer fmt
-    const char* how = isRunningUnderWine() ? " (auto: Wine/Proton RGBA)"
+    const char* how = isRunningUnderWine() ? " (auto: Wine/Proton BGRA)"
                                            : " (auto: Windows backbuffer)";
     if (s_outputFormatOverride != 0) {
         outFmt = (uint32_t)s_outputFormatOverride;
