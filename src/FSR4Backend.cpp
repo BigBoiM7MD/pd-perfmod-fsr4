@@ -1163,17 +1163,15 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
     // 0.0..5.0, defaulting to 0.0. The FFX upscale API (ffx_upscale.h) defines
     // `sharpness` as 0..1 (1 = max RCAS). We LINEARLY normalize the whole
     // 0..5 slider into 0..1 (s /= 5.0 for any value above 0) so the knob tracks
-    // RCAS evenly end-to-end — no confusing split mapping. If the user enabled
-    // the "Sharpness" toggle but left the amount at its 0.0 default, fall back
-    // to a gentle 0.4 RCAS so the toggle isn't a dead switch. Fix for "the
-    // sharpness slider does nothing" — it was being forwarded as 0.0 the whole
-    // time.
+    // RCAS evenly end-to-end. 0 maps to 0 (no sharpening) — the toggle respects
+    // the slider, so enabling "Sharpness" with the amount left at 0 does nothing
+    // (no auto-fallback). Fix for "the sharpness slider does nothing" — it was
+    // being forwarded as 0.0 the whole time.
     {
         float s = sharpness;
         if (s < 0.0f) s = 0.0f;
         // REFramework slider max is 5.0 -> map linearly to FFX max 1.0.
         if (s > 0.0f) s /= 5.0f;
-        if (ctx.enableSharpening && s <= 0.0f) s = 0.4f; // toggle on, amount at default 0 -> gentle RCAS
         dd.sharpness = s;
     }
     dd.frameTimeDelta          = 16.6f;
