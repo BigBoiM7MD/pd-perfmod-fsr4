@@ -1180,6 +1180,17 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             effectiveDst == ctx.outputTexture) {
             recordRbSwap(m_impl->rbSwapRootSig, m_impl->rbSwapPso, ctx,
                          (ID3D12GraphicsCommandList*)effectiveCmdList);
+        } else if (m_impl->rbSwapEnabled && effectiveDst != ctx.outputTexture) {
+            // REFramework handed us a destination texture, so FSR4 did NOT write
+            // into ctx.outputTexture; the swap source would be wrong. Swap is
+            // skipped and colors WILL stay swapped. Log once so a test that shows
+            // "still swapped" is explained instead of mysterious.
+            static bool s_warn = false;
+            if (!s_warn) { s_warn = true;
+                Logging::warn("FSR4Backend: R/B swap SKIPPED - evaluate() got a non-null "
+                              "destination (fsr wrote elsewhere); output texture unchanged -> "
+                              "colors will still be R/B swapped. REFramework normally passes null.");
+            }
         }
 
         // NOTE: The backbuffer copy is performed by REFramework's TemporalUpscaler
