@@ -1,12 +1,12 @@
 # pd-perfmod-fsr4
 
 > Get **AMD FSR 4** upscaling in games that don't ship it natively — like
-> **Resident Evil** (RE Engine) titles via REFramework. Drop one DLL in and go.
+> **Resident Evil** (RE Engine) titles via REFramework. Extract the files from the releases page in conjunction with REFramework's pd-upscaler's branch and go.
 > Works on **Windows** and **Linux / Proton** (Steam Deck included).
 
 ## TL;DR
 
-- Picks the **best FSR version your GPU supports** (FSR 4 on RX 9000, FSR 3.1 on older cards).
+- Picks the **best FSR version your GPU supports** (FSR 4 on RX 7000 and higher, FSR 3.1 on older cards).
 - **Correct colors on Linux/Proton** — we fix the red/blue swap automatically.
 - **HDR is preserved** when the game runs in HDR.
 - Open source, drop-in `PDPerfPlugin.dll`. No closed Nexus-only binaries.
@@ -24,19 +24,6 @@ FidelityFX (FFX) runtime. At load it:
 - **Handles Linux/Proton color and HDR quirks** so the image looks right
   (see [Linux / Proton](#linux--proton-colors--hdr)).
 - Writes a **live, tail-able log** you can watch while the game runs.
-
-## Why this mod exists
-
-The existing REFramework upscaler plugin does **not** support FSR 4 — it only
-exposes FSR 2/3 by default, so RDNA4 owners can't get the newer ML upscaler
-through it. Worse, that original plugin is **closed source** and only
-distributed through NexusMods, so it can't be inspected, built, or extended by
-the community.
-
-This project is an **open-source** reimplementation of the `PDPerfPlugin`
-interface that adds FSR 4 (with automatic FSR 3.1 fallback) and is freely
-available in source form. The goal: bring FSR 4 to these games without
-depending on a closed, Nexus-only binary.
 
 ## Install
 
@@ -63,6 +50,19 @@ OptiScaler swaps the underlying upscaler backend (it can present
 DLSS/XeSS/FSR to the game); this plugin is the FSR path. They are complementary:
 install REFramework + this plugin for FSR4, and add OptiScaler if you also want
 DLSS/XeSS selection.
+
+## Why this mod exists
+
+The existing REFramework upscaler plugin does **not** support FSR 4 — it only
+exposes FSR 2/3 by default, so RDNA4 owners can't get the newer ML upscaler
+through it. Worse, that original plugin is **closed source** and only
+distributed through NexusMods, so it can't be inspected, built, or extended by
+the community.
+
+This project is an **open-source** reimplementation of the `PDPerfPlugin`
+interface that adds FSR 4 (with automatic FSR 3.1 fallback) and is freely
+available in source form. The goal: bring FSR 4 to these games without
+depending on a closed, Nexus-only binary.
 
 ## Package contents
 
