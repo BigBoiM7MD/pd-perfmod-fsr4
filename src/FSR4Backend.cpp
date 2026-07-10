@@ -936,8 +936,11 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     //     dxgi/vkd3d quirk (vkd3d canonicalizes the present image to RGBA8
     //     internally and applies a (B,G,R,A) present swizzle). REFramework then
     //     raw-copies our output (vkCmdCopyImage2, no reorder) into that backbuffer.
-    //     Empirically (in-game): default 28 + swap was BROKEN; 87 + swap is
-    //     PERFECT. So the auto-default is 87 (BGRA). The R/B swap pass is still
+    //     Empirically (in-game, pre-fix): 28 produced ALL channels scrambled
+    //     (not a clean R/B swap) because it's the wrong present format; 87
+    //     produced ONLY a clean R/B swap (correct format, wrong byte order) and
+    //     is PERFECT once the swap pass reorders FSR's RGBA bytes to BGRA.
+    //     So the auto-default is 87 (BGRA). The R/B swap pass is still
     //     run (it turns FSR's RGBA bytes into BGRA-ordered bytes) for robustness,
     //     matching the vkd3d present swizzle. The INI [Backend] OutputFormat (if
     //     non-zero) always overrides this.
