@@ -972,13 +972,20 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
     ctx.outputTexture = outputTexture;
     ctx.format        = (int)outFmt; // store the ACTUAL created format, not just requested
 
-    // Linux/Proton red<->blue correction. FSR4 writes RGBA (28); the backbuffer
-    // presents as BGRA, so we hand REFramework a BGRA-ordered copy. Build a
-    // compute pass that writes (b,g,r,a) into ctx.swapTexture and return that.
-    // Gate: only under Wine AND our output is R8G8B8A8 (RGBA). On native Windows
-    // (backbuffer is whatever REFramework passed, already correct) we skip it.
+    // Linux/Proton red<->blue correction. The Proton backbuffer is ALWAYS
+    // B8G8R8A8 (87) at present time even though backbuffer->GetDesc() reports
+    // R8G8B8A8 (28): vkd3d canonicalizes the present image to VK_FORMAT_R8G8B8A8
+    // internally (RGBA8 is STORAGE_IMAGE-safe; BGRA8 is not) and applies a
+    // (B,G,R,A) swizzle at present (vkd3d_src/command.c:11017 CopyResource
+    // byte-depth guard + present swizzle). FSR always writes RGBA-order bytes,
+    // so for any 32bpp 4-channel UNORM output (28 or 87) we must hand back
+    // BGRA-ordered bytes. 10 (float16, 64bpp) is dropped by the CopyResource
+    // byte-depth guard, so it is left alone. Native Windows backbuffer is
+    // whatever REFramework passed (already correct) -> skip.
     void* returnTexture = outputTexture;
-    if (isRunningUnderWine() && outFmt == (uint32_t)DXGI_FORMAT_R8G8B8A8_UNORM) {
+    if (isRunningUnderWine() &&
+        (outFmt == (uint32_t)DXGI_FORMAT_R8G8B8A8_UNORM ||
+         outFmt == (uint32_t)DXGI_FORMAT_B8G8R8A8_UNORM)) {
         if (ensureRbSwapPipeline(m_impl->device, &m_impl->rbSwapRootSig, &m_impl->rbSwapPso) &&
             createRbSwapResources(m_impl->device, ctx, (UINT)displaySizeX, (UINT)displaySizeY)) {
             m_impl->rbSwapEnabled = true;
