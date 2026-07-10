@@ -11,13 +11,14 @@ The "bugfix run" release. Focus: correct colors and honest controls on every
 platform.
 
 ### Fixed
-- **Linux/Proton: mod failed to open (crash on load).** The load-time exports
-  (`SetupDirectX` / `InitUpscaler` / `SimpleInit`) were not exception-guarded,
-  so a failure inside the D3D12/DXGI/FFX calls escaped into REFramework and took
-  the game down — the plugin wouldn't open at all under Wine/Proton. The init
-  path is now wrapped in the same `try/catch` as `evaluate()`, so any failure
-  cleanly disables FSR4 (game falls back to its own upscaler) instead of
-  crashing. On native Windows behavior is unchanged.
+- **Linux/Proton: mod failed to open (REFramework crash on load).** The
+  load-time exports (`SetupDirectX` / `InitUpscaler` / `SimpleInit`) were not
+  exception-guarded, so a failure inside the D3D12/DXGI/FFX calls escaped into
+  REFramework and **crashed REFramework** (the plugin wouldn't open at all under
+  Wine/Proton). The init path is now wrapped in the same `try/catch` as
+  `evaluate()`, so any failure cleanly disables FSR4 (game falls back to its own
+  upscaler) instead of taking REFramework down. On native Windows behavior is
+  unchanged.
 - **Linux/Proton colors:** auto-output BGRA (`87`) with the R/B swap pass, so
   SDR images are color-correct. The old RGBA (`28`) default scrambled all
   channels and is no longer used.

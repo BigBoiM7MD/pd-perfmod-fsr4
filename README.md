@@ -123,7 +123,7 @@ not Windows-only.
     REFramework change, outside this plugin.
 - **Crash safety.** If anything fails at load (missing loader DLL, etc.), the
   plugin disables itself cleanly — the game falls back to its own upscaler
-  instead of crashing.
+  instead of taking REFramework down.
 
 If FSR4 won't start under Proton, the log will name the exact failing call —
 send that line over.
