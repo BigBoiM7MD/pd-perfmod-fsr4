@@ -186,12 +186,12 @@ void* __stdcall SimpleInit(int id, int upscaleMethod, int qualityLevel,
 }
 
 void* __stdcall InitUpscaler(InitParams* params) {
+    initialize();
     if (!params) {
         Logging::error("InitUpscaler: NULL params");
         return nullptr;
     }
 
-    initialize();
     Logging::info("InitUpscaler called: id=%d method=%d qual=%d %dx%d fmt=%d",
                   params->id, params->upscaleMethod, params->qualityLevel,
                   params->displaySizeX, params->displaySizeY, params->format);
