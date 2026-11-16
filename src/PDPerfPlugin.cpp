@@ -111,14 +111,23 @@ bool __stdcall SetupDirectX(void* item, int graphicsAPI) {
     Logging::info("SetupDirectX(graphicsAPI=%d)", graphicsAPI);
 
     if (g_d3d12Device) {
-        g_d3d12Device->Release();
+        try {
+            g_d3d12Device->Release();
+        } catch (...) {
+            safeStderrWarn("[PDPerfPlugin] SetupDirectX: Release threw exception\n");
+        }
         g_d3d12Device = nullptr;
     }
     g_d3d12Queue = nullptr;
 
     if (graphicsAPI == 1 && item != nullptr) {
-        g_d3d12Queue = (ID3D12CommandQueue*)item;
-        if (FAILED(g_d3d12Queue->GetDevice(IID_PPV_ARGS(&g_d3d12Device)))) {
+        try {
+            g_d3d12Queue = (ID3D12CommandQueue*)item;
+            if (FAILED(g_d3d12Queue->GetDevice(IID_PPV_ARGS(&g_d3d12Device))) || !g_d3d12Device) {
+                g_d3d12Device = nullptr;
+            }
+        } catch (...) {
+            safeStderrWarn("[PDPerfPlugin] SetupDirectX: GetDevice threw exception\n");
             g_d3d12Device = nullptr;
         }
     }
