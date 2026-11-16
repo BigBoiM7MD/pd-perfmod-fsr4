@@ -78,8 +78,17 @@ static ID3D12Resource* createFallbackTexture(int displaySizeX, int displaySizeY,
     heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
 
     ID3D12Resource* resource = nullptr;
-    if (SUCCEEDED(g_d3d12Device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
-        &desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&resource)))) {
+    HRESULT hr = g_d3d12Device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+        &desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&resource));
+    if ((FAILED(hr) || !resource) && desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM) {
+        Logging::warn("createFallbackTexture: format=%d failed (hr=%08x), retrying R8G8B8A8_UNORM",
+                      (int)desc.Format, hr);
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        resource = nullptr;
+        hr = g_d3d12Device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+            &desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&resource));
+    }
+    if (SUCCEEDED(hr) && resource) {
         return resource;
     }
     return nullptr;
