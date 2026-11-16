@@ -875,42 +875,55 @@ void FSR4Backend::logSystemInfo() {
         // can throw or mismatch. A failure here is cosmetic (we just lose the
         // GPU name), so never let it abort setup() -> FSR4 must still init.
         try {
-        using PFN_CreateDXGIFactory1 = HRESULT (WINAPI*)(REFIID, void**);
-        bool loadedDxgi = false;
-        HMODULE dxgiMod = GetModuleHandleW(L"dxgi.dll");
-        if (!dxgiMod) {
-            dxgiMod = LoadLibraryW(L"dxgi.dll");
-            loadedDxgi = (dxgiMod != nullptr);
-        }
-        auto createDXGIFactory1Fn = dxgiMod
-            ? (PFN_CreateDXGIFactory1)GetProcAddress(dxgiMod, "CreateDXGIFactory1")
-            : nullptr;
+            struct DxgiScopeGuard {
+                bool loadedDxgi = false;
+                HMODULE dxgiMod = nullptr;
+                IDXGIFactory4* factory = nullptr;
+                IDXGIAdapter* adapter = nullptr;
+                ~DxgiScopeGuard() {
+                    if (adapter) {
+                        try { adapter->Release(); } catch (...) {}
+                        adapter = nullptr;
+                    }
+                    if (factory) {
+                        try { factory->Release(); } catch (...) {}
+                        factory = nullptr;
+                    }
+                    if (loadedDxgi && dxgiMod) {
+                        try { FreeLibrary(dxgiMod); } catch (...) {}
+                        dxgiMod = nullptr;
+                    }
+                }
+            } guard;
 
-        IDXGIFactory4* factory = nullptr;
-        if (createDXGIFactory1Fn && SUCCEEDED(createDXGIFactory1Fn(IID_PPV_ARGS(&factory))) && factory) {
-            LUID devLuid = m_impl->device->GetAdapterLuid();
-            IDXGIAdapter* matched = nullptr;
-            for (UINT i = 0; ; i++) {
-                IDXGIAdapter* ad = nullptr;
-                if (FAILED(factory->EnumAdapters(i, &ad))) break; // NOT_FOUND ends it
-                DXGI_ADAPTER_DESC desc = {};
-                if (SUCCEEDED(ad->GetDesc(&desc))) {
-                    if (desc.AdapterLuid.HighPart == devLuid.HighPart &&
+            using PFN_CreateDXGIFactory1 = HRESULT (WINAPI*)(REFIID, void**);
+            guard.dxgiMod = GetModuleHandleW(L"dxgi.dll");
+            if (!guard.dxgiMod) {
+                guard.dxgiMod = LoadLibraryW(L"dxgi.dll");
+                guard.loadedDxgi = (guard.dxgiMod != nullptr);
+            }
+            auto createDXGIFactory1Fn = guard.dxgiMod
+                ? (PFN_CreateDXGIFactory1)GetProcAddress(guard.dxgiMod, "CreateDXGIFactory1")
+                : nullptr;
+
+            if (createDXGIFactory1Fn && SUCCEEDED(createDXGIFactory1Fn(IID_PPV_ARGS(&guard.factory))) && guard.factory) {
+                LUID devLuid = m_impl->device->GetAdapterLuid();
+                for (UINT i = 0; ; i++) {
+                    if (FAILED(guard.factory->EnumAdapters(i, &guard.adapter)) || !guard.adapter) break; // NOT_FOUND ends it
+                    DXGI_ADAPTER_DESC desc = {};
+                    const HRESULT descHr = guard.adapter->GetDesc(&desc);
+                    IDXGIAdapter* ad = guard.adapter;
+                    guard.adapter = nullptr;
+                    ad->Release();
+                    if (SUCCEEDED(descHr) &&
+                        desc.AdapterLuid.HighPart == devLuid.HighPart &&
                         desc.AdapterLuid.LowPart  == devLuid.LowPart) {
                         WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1,
                             gpuName, MAX_PATH, nullptr, nullptr);
-                        matched = ad; // hold ref; released below
-                    } else {
-                        ad->Release();
+                        break;
                     }
-                } else {
-                    ad->Release();
                 }
             }
-            if (matched) matched->Release();
-            factory->Release();
-        }
-        if (loadedDxgi) FreeLibrary(dxgiMod);
         } catch (...) {
             strncpy_s(gpuName, "<unknown GPU (DXGI probe failed)>", sizeof(gpuName) - 1);
         }
