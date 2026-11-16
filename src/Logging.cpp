@@ -3,6 +3,7 @@
 #endif
 
 #include "../include/Logging.h"
+#include <cwchar>
 #include <utility>
 #include <Windows.h>
 
@@ -128,6 +129,14 @@ static std::wstring resolveModuleDirectoryW(LPCWSTR moduleAddr) {
     return L"";
 }
 
+static std::wstring stripExtendedDrivePrefixW(std::wstring path) {
+    if (path.size() >= 7 && path.compare(0, 4, L"\\\\?\\") == 0 &&
+        isAsciiAlphaW(path[4]) && path[5] == L':' && path[6] == L'\\') {
+        path.erase(0, 4);
+    }
+    return path;
+}
+
 // Win32 PrivateProfile APIs enforce MAX_PATH internally in Wine and older
 // Windows builds. When >= MAX_PATH, shorten via 8.3 names when available so
 // GetPrivateProfileStringW / WritePrivateProfileStringW operate on the real file.
@@ -143,6 +152,7 @@ static std::wstring resolveIniApiPathW(const std::wstring& iniPath) {
             const DWORD written = GetShortPathNameW(iniPath.c_str(), &shortIni[0], needed);
             if (written > 0 && written < needed) {
                 shortIni.resize(written);
+                shortIni = stripExtendedDrivePrefixW(std::move(shortIni));
                 if (shortIni.size() < MAX_PATH) {
                     return shortIni;
                 }
@@ -163,7 +173,7 @@ static std::wstring resolveIniApiPathW(const std::wstring& iniPath) {
                 while (!shortDir.empty() && shortDir.back() == L'\\') {
                     shortDir.pop_back();
                 }
-                std::wstring candidate = shortDir + L"\\" + file;
+                std::wstring candidate = stripExtendedDrivePrefixW(shortDir + L"\\" + file);
                 if (candidate.size() < MAX_PATH) {
                     return candidate;
                 }
@@ -172,6 +182,49 @@ static std::wstring resolveIniApiPathW(const std::wstring& iniPath) {
     }
 
     return iniPath;
+}
+
+static std::string trimAscii(const std::string& s) {
+    size_t start = 0;
+    while (start < s.size() && (s[start] == ' ' || s[start] == '\t' || s[start] == '\r' || s[start] == '\n')) {
+        ++start;
+    }
+    size_t end = s.size();
+    while (end > start && (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\r' || s[end - 1] == '\n')) {
+        --end;
+    }
+    return s.substr(start, end - start);
+}
+
+static std::string toLowerAscii(std::string s) {
+    for (char& ch : s) {
+        if (ch >= 'A' && ch <= 'Z') {
+            ch = static_cast<char>(ch - 'A' + 'a');
+        }
+    }
+    return s;
+}
+
+static std::string wideAsciiLower(const wchar_t* s) {
+    std::string out;
+    if (!s) return out;
+    for (; *s; ++s) {
+        wchar_t ch = *s;
+        if (ch >= L'A' && ch <= L'Z') {
+            ch = static_cast<wchar_t>(ch - L'A' + L'a');
+        }
+        out.push_back(static_cast<char>(ch & 0xFF));
+    }
+    return out;
+}
+
+static void copyDefaultIniValue(const wchar_t* defaultValue, wchar_t* outBuf, DWORD outSize) {
+    if (!outBuf || outSize == 0) return;
+    if (!defaultValue) {
+        outBuf[0] = L'\0';
+        return;
+    }
+    wcsncpy_s(outBuf, outSize, defaultValue, _TRUNCATE);
 }
 
 std::wstring Logging::getDllDir() {
@@ -196,8 +249,92 @@ std::wstring Logging::getIniPath() {
     return getDllSiblingPath(PD_LOG_INI_NAME_W);
 }
 
+std::wstring Logging::getIniApiPath() {
+    return resolveIniApiPathW(getIniPath());
+}
+
 std::wstring Logging::getLogPath() {
     return getDllSiblingPath(PD_LOG_FILE_NAME_W);
+}
+
+bool Logging::readIniFallback(const wchar_t* section, const wchar_t* key,
+                              const wchar_t* defaultValue, wchar_t* outBuf, DWORD outSize) {
+    copyDefaultIniValue(defaultValue, outBuf, outSize);
+    if (!section || !key || !outBuf || outSize == 0) {
+        return false;
+    }
+
+    const std::wstring iniPath = getIniPath();
+    FILE* f = _wfopen(iniPath.c_str(), L"rb");
+    if (!f) {
+        return false;
+    }
+
+    const std::string targetSection = wideAsciiLower(section);
+    const std::string targetKey     = wideAsciiLower(key);
+    bool inSection = false;
+    bool firstLine = true;
+    char lineBuf[1024];
+
+    while (fgets(lineBuf, sizeof(lineBuf), f)) {
+        std::string line(lineBuf);
+        if (firstLine) {
+            firstLine = false;
+            if (line.size() >= 3 &&
+                static_cast<unsigned char>(line[0]) == 0xEF &&
+                static_cast<unsigned char>(line[1]) == 0xBB &&
+                static_cast<unsigned char>(line[2]) == 0xBF) {
+                line.erase(0, 3);
+            }
+        }
+
+        const std::string trimmed = trimAscii(line);
+        if (trimmed.empty() || trimmed[0] == ';' || trimmed[0] == '#') {
+            continue;
+        }
+        if (trimmed.front() == '[') {
+            const size_t closePos = trimmed.find(']');
+            if (closePos != std::string::npos) {
+                const std::string sec = toLowerAscii(trimAscii(trimmed.substr(1, closePos - 1)));
+                inSection = (sec == targetSection);
+            } else {
+                inSection = false;
+            }
+            continue;
+        }
+        if (!inSection) {
+            continue;
+        }
+
+        const size_t eqPos = trimmed.find('=');
+        if (eqPos == std::string::npos) {
+            continue;
+        }
+        const std::string k = toLowerAscii(trimAscii(trimmed.substr(0, eqPos)));
+        if (k != targetKey) {
+            continue;
+        }
+
+        std::string val = trimAscii(trimmed.substr(eqPos + 1));
+        if (val.size() >= 2 &&
+            ((val.front() == '"' && val.back() == '"') ||
+             (val.front() == '\'' && val.back() == '\''))) {
+            val = val.substr(1, val.size() - 2);
+        }
+        if (!val.empty()) {
+            const int written = MultiByteToWideChar(CP_UTF8, 0, val.c_str(), -1, outBuf, static_cast<int>(outSize));
+            if (written <= 0) {
+                outBuf[outSize - 1] = L'\0';
+            }
+            fclose(f);
+            return true;
+        }
+        fclose(f);
+        return false;
+    }
+
+    fclose(f);
+    return false;
 }
 
 BOOL CALLBACK Logging::loggingInitOnce(PINIT_ONCE, PVOID, PVOID*) {
@@ -208,18 +345,29 @@ BOOL CALLBACK Logging::loggingInitOnce(PINIT_ONCE, PVOID, PVOID*) {
     // catch(...) trap SEH/AV too. Always return TRUE so callers never wedge.
     try {
         const std::wstring iniPath     = getIniPath();
-        const std::wstring profilePath = resolveIniApiPathW(iniPath);
+        const std::wstring profilePath = getIniApiPath();
 
-        wchar_t buf[16] = { 0 };
+        wchar_t buf[16] = L"1";
         // Default to VERBOSE. The non-verbose path hides almost every
         // FSR4Backend: diagnostic line, and on a new platform (Linux/Proton)
         // you WANT to see them. User can set Verbose=0 to quiet it down.
-        GetPrivateProfileStringW(L"Logging", L"Verbose", L"1", buf, 16, profilePath.c_str());
+        // Note: when the key or file is missing, GetPrivateProfileStringW
+        // copies L"1" and returns 1. Checking copied == 0 preserves L"1" if the
+        // Win32 API fails (e.g. >= MAX_PATH without 8.3 names) or is empty.
+        if (profilePath.size() < MAX_PATH) {
+            const DWORD copied = GetPrivateProfileStringW(L"Logging", L"Verbose", L"1", buf, 16, profilePath.c_str());
+            if (copied == 0) {
+                wcscpy_s(buf, L"1");
+            }
+        } else {
+            readIniFallback(L"Logging", L"Verbose", L"1", buf, 16);
+        }
         s_verbose = (buf[0] == L'1');
 
         if (GetFileAttributesW(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
             // File missing -> create it with VERBOSE default so diagnostics show.
-            if (!WritePrivateProfileStringW(L"Logging", L"Verbose", L"1", profilePath.c_str()) ||
+            if (profilePath.size() >= MAX_PATH ||
+                !WritePrivateProfileStringW(L"Logging", L"Verbose", L"1", profilePath.c_str()) ||
                 GetFileAttributesW(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
                 FILE* iniFile = _wfopen(iniPath.c_str(), L"w");
                 if (iniFile) {

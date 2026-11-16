@@ -58,21 +58,16 @@ static constexpr uint64_t FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12 = MAKE_B
 static int s_outputFormatOverride = 0; // 0 => no override
 
 static void readBackendIni() {
-    const std::wstring iniPath = Logging::getIniPath();
-    std::wstring queryPath = iniPath;
-    if (queryPath.size() >= MAX_PATH && GetFileAttributesW(queryPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        const DWORD needed = GetShortPathNameW(queryPath.c_str(), nullptr, 0);
-        if (needed > 0) {
-            std::wstring shortIni(needed, L'\0');
-            const DWORD written = GetShortPathNameW(queryPath.c_str(), &shortIni[0], needed);
-            if (written > 0 && written < needed && written < MAX_PATH) {
-                shortIni.resize(written);
-                queryPath = std::move(shortIni);
-            }
+    const std::wstring queryPath = Logging::getIniApiPath();
+    wchar_t buf[32] = L"0";
+    if (queryPath.size() < MAX_PATH) {
+        const DWORD copied = GetPrivateProfileStringW(L"Backend", L"OutputFormat", L"0", buf, 32, queryPath.c_str());
+        if (copied == 0) {
+            wcscpy_s(buf, L"0");
         }
+    } else {
+        Logging::readIniFallback(L"Backend", L"OutputFormat", L"0", buf, 32);
     }
-    wchar_t buf[32] = { 0 };
-    GetPrivateProfileStringW(L"Backend", L"OutputFormat", L"0", buf, 32, queryPath.c_str());
     s_outputFormatOverride = _wtoi(buf);
     Logging::info("FSR4Backend: ini Backend.OutputFormat=%d (0=auto-detect)", s_outputFormatOverride);
 }

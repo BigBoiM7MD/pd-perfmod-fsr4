@@ -36,7 +36,10 @@ public:
     static std::wstring getDllDir();
     static std::wstring getDllSiblingPath(const wchar_t* filename);
     static std::wstring getIniPath();
+    static std::wstring getIniApiPath();
     static std::wstring getLogPath();
+    static bool readIniFallback(const wchar_t* section, const wchar_t* key,
+                                const wchar_t* defaultValue, wchar_t* outBuf, DWORD outSize);
 
 private:
     static BOOL CALLBACK loggingInitOnce(PINIT_ONCE initOnce, PVOID param, PVOID* context);
