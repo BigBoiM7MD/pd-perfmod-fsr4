@@ -3,6 +3,7 @@
 #include "../include/Logging.h"
 
 #include <cstring>
+#include <exception>
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <unordered_map>
@@ -12,7 +13,7 @@
 extern void safeStderrWarn(const char* fmt, ...);
 
 static FSR4Backend* g_fsr4 = nullptr;
-static bool g_initialized = false;
+static INIT_ONCE g_initOnce = INIT_ONCE_STATIC_INIT;
 static void (*g_logDelegate)(char*, int) = nullptr;
 
 static ID3D12Device* g_d3d12Device = nullptr;
@@ -23,10 +24,7 @@ static void logCallback(char* message, int iSize) {
     if (g_logDelegate) g_logDelegate(message, iSize);
 }
 
-static void initialize() {
-    if (g_initialized) return;
-    g_initialized = true;
-
+static BOOL CALLBACK initializeOnce(PINIT_ONCE, PVOID, PVOID*) {
     // EXPORT-GUARDED. REFramework calls IsUpscaleMethodAvailable /
     // GetUpscaleMethodName from TemporalUpscaler::on_initialize() *before*
     // SetupDirectX runs, so this runs during load on the game thread. If
@@ -35,10 +33,9 @@ static void initialize() {
     // REFramework ("Initialization of mods failed. Reason: exception thrown"),
     // with no FSR4Backend log line because setup() was never reached. Guard
     // it. /EHa (CMakeLists.txt) makes catch(...) trap SEH/AV too. If init
-    // fails we stay g_initialized=true but g_fsr4 stays null -> every export
-    // already null-guards on g_fsr4 and degrades to "no backend available"
-    // instead of crashing. Re-apply the same guard around the real init work
-    // below if it is ever made non-idempotent.
+    // fails g_fsr4 stays null -> every export already null-guards on g_fsr4
+    // and degrades to "no backend available" instead of crashing. Always
+    // return TRUE so InitOnceExecuteOnce never wedges subsequent callers.
     try {
         Logging::init();
         Logging::info("pd-perfmod-fsr4 initializing...");
@@ -54,6 +51,11 @@ static void initialize() {
         safeStderrWarn("[PDPerfPlugin] initialize() threw unknown exception (SEH/AV?)\n");
         g_fsr4 = nullptr;
     }
+    return TRUE;
+}
+
+static void initialize() {
+    InitOnceExecuteOnce(&g_initOnce, initializeOnce, nullptr, nullptr);
 }
 
 static ID3D12Resource* createFallbackTexture(int displaySizeX, int displaySizeY, int format) {

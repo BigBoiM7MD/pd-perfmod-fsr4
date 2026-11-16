@@ -5,9 +5,12 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <unordered_map>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <map>
+#include <string>
+#include <utility>
 #include <vector>
 
 // Precompiled DXBC for the red<->blue swap compute shader (src/shaders/rb_swap.hlsl).
@@ -55,24 +58,22 @@ static constexpr uint64_t FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12 = MAKE_B
 static int s_outputFormatOverride = 0; // 0 => no override
 
 static void readBackendIni() {
-    char dllDir[MAX_PATH]; dllDir[0] = '\0';
-    HMODULE mod = nullptr;
-    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            (LPCSTR)&readBackendIni, &mod) && mod) {
-        char path[MAX_PATH];
-        GetModuleFileNameA(mod, path, MAX_PATH);
-        strncpy_s(dllDir, path, MAX_PATH - 1);
-        for (int i = (int)strlen(dllDir) - 1; i >= 0; i--)
-            if (dllDir[i] == '\\') { dllDir[i] = '\0'; break; }
-    } else {
-        GetCurrentDirectoryA(MAX_PATH, dllDir);
+    const std::wstring iniPath = Logging::getIniPath();
+    std::wstring queryPath = iniPath;
+    if (queryPath.size() >= MAX_PATH && GetFileAttributesW(queryPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        const DWORD needed = GetShortPathNameW(queryPath.c_str(), nullptr, 0);
+        if (needed > 0) {
+            std::wstring shortIni(needed, L'\0');
+            const DWORD written = GetShortPathNameW(queryPath.c_str(), &shortIni[0], needed);
+            if (written > 0 && written < needed && written < MAX_PATH) {
+                shortIni.resize(written);
+                queryPath = std::move(shortIni);
+            }
+        }
     }
-    char iniPath[MAX_PATH];
-    sprintf_s(iniPath, "%s\\pd-perfmod-fsr4.ini", dllDir);
-    char buf[32] = { 0 };
-    GetPrivateProfileStringA("Backend", "OutputFormat", "0", buf, sizeof(buf), iniPath);
-    s_outputFormatOverride = atoi(buf);
+    wchar_t buf[32] = { 0 };
+    GetPrivateProfileStringW(L"Backend", L"OutputFormat", L"0", buf, 32, queryPath.c_str());
+    s_outputFormatOverride = _wtoi(buf);
     Logging::info("FSR4Backend: ini Backend.OutputFormat=%d (0=auto-detect)", s_outputFormatOverride);
 }
 
