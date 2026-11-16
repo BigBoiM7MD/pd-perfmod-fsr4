@@ -59,7 +59,7 @@ static void initialize() {
 }
 
 static ID3D12Resource* createFallbackTexture(int displaySizeX, int displaySizeY, int format) {
-    if (!g_d3d12Device) return nullptr;
+    if (!g_d3d12Device || displaySizeX <= 0 || displaySizeY <= 0) return nullptr;
 
     D3D12_RESOURCE_DESC desc = {};
     desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -68,33 +68,58 @@ static ID3D12Resource* createFallbackTexture(int displaySizeX, int displaySizeY,
     desc.Height = (UINT)displaySizeY;
     desc.DepthOrArraySize = 1;
     desc.MipLevels = 1;
-    desc.Format = (DXGI_FORMAT)format;
+    desc.Format = (format > 0) ? (DXGI_FORMAT)format : DXGI_FORMAT_R8G8B8A8_UNORM;
     desc.SampleDesc.Count = 1;
     desc.SampleDesc.Quality = 0;
     desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
     D3D12_HEAP_PROPERTIES heapProps = {};
     heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
 
     ID3D12Resource* resource = nullptr;
     if (SUCCEEDED(g_d3d12Device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
-        &desc, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&resource)))) {
+        &desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&resource)))) {
         return resource;
     }
     return nullptr;
+}
+
+static void eraseFallbackTexture(int id) {
+    auto it = g_fallbackTextures.find(id);
+    if (it != g_fallbackTextures.end()) {
+        if (it->second) {
+            it->second->Release();
+        }
+        g_fallbackTextures.erase(it);
+        Logging::info("Released fallback texture id=%d", id);
+    }
+}
+
+static ID3D12Resource* storeFallbackTexture(int id, int displaySizeX, int displaySizeY, int format) {
+    eraseFallbackTexture(id);
+    ID3D12Resource* fallback = createFallbackTexture(displaySizeX, displaySizeY, format);
+    if (fallback) {
+        g_fallbackTextures[id] = fallback;
+        Logging::info("Created fallback texture id=%d %dx%d", id, displaySizeX, displaySizeY);
+    }
+    return fallback;
 }
 
 bool __stdcall SetupDirectX(void* item, int graphicsAPI) {
     initialize();
     Logging::info("SetupDirectX(graphicsAPI=%d)", graphicsAPI);
 
-    if (graphicsAPI == 1) {
+    if (g_d3d12Device) {
+        g_d3d12Device->Release();
+        g_d3d12Device = nullptr;
+    }
+    g_d3d12Queue = nullptr;
+
+    if (graphicsAPI == 1 && item != nullptr) {
         g_d3d12Queue = (ID3D12CommandQueue*)item;
-        if (g_d3d12Queue) {
-            if (FAILED(g_d3d12Queue->GetDevice(IID_PPV_ARGS(&g_d3d12Device)))) {
-                g_d3d12Device = nullptr;
-            }
+        if (FAILED(g_d3d12Queue->GetDevice(IID_PPV_ARGS(&g_d3d12Device)))) {
+            g_d3d12Device = nullptr;
         }
     }
 
@@ -115,26 +140,26 @@ void* __stdcall SimpleInit(int id, int upscaleMethod, int qualityLevel,
     initialize();
 
     if (g_fsr4 && g_fsr4->isAvailable()) {
-        return g_fsr4->createContext(id, upscaleMethod, qualityLevel, displaySizeX, displaySizeY,
-                                      isContentHDR, depthInverted, YAxisInverted,
-                                      motionVetorsJittered, enableSharpening,
-                                      enableAutoExposure, format);
+        void* tex = g_fsr4->createContext(id, upscaleMethod, qualityLevel, displaySizeX, displaySizeY,
+                                          isContentHDR, depthInverted, YAxisInverted,
+                                          motionVetorsJittered, enableSharpening,
+                                          enableAutoExposure, format);
+        if (tex) {
+            eraseFallbackTexture(id);
+            return tex;
+        }
+        Logging::error("SimpleInit: FSR4 createContext failed for id=%d, using fallback texture", id);
     }
 
-    ID3D12Resource* fallback = createFallbackTexture(displaySizeX, displaySizeY, format);
-    if (fallback) {
-        g_fallbackTextures[id] = fallback;
-        Logging::info("Created fallback texture id=%d %dx%d", id, displaySizeX, displaySizeY);
-    }
-    return fallback;
+    return storeFallbackTexture(id, displaySizeX, displaySizeY, format);
 }
 
 void* __stdcall InitUpscaler(InitParams* params) {
-    if (!params) { 
+    if (!params) {
         Logging::error("InitUpscaler: NULL params");
-        return nullptr; 
+        return nullptr;
     }
-    
+
     initialize();
     Logging::info("InitUpscaler called: id=%d method=%d qual=%d %dx%d fmt=%d",
                   params->id, params->upscaleMethod, params->qualityLevel,
@@ -142,21 +167,22 @@ void* __stdcall InitUpscaler(InitParams* params) {
 
     if (g_fsr4 && g_fsr4->isAvailable()) {
         Logging::info("InitUpscaler: Using FSR4 backend");
-        return g_fsr4->createContext(params->id, params->upscaleMethod, params->qualityLevel,
-                                      params->displaySizeX, params->displaySizeY,
-                                      params->isContentHDR, params->depthInverted, 
-                                      params->YAxisInverted, params->motionVetorsJittered,
-                                      params->enableSharpening, params->enableAutoExposure,
-                                      params->format);
+        void* tex = g_fsr4->createContext(params->id, params->upscaleMethod, params->qualityLevel,
+                                          params->displaySizeX, params->displaySizeY,
+                                          params->isContentHDR, params->depthInverted,
+                                          params->YAxisInverted, params->motionVetorsJittered,
+                                          params->enableSharpening, params->enableAutoExposure,
+                                          params->format);
+        if (tex) {
+            eraseFallbackTexture(params->id);
+            return tex;
+        }
+        Logging::error("InitUpscaler: FSR4 createContext failed for id=%d, using fallback texture", params->id);
+        return storeFallbackTexture(params->id, params->displaySizeX, params->displaySizeY, params->format);
     }
 
     Logging::error("InitUpscaler: No backend available!");
-    ID3D12Resource* fallback = createFallbackTexture(params->displaySizeX, params->displaySizeY, params->format);
-    if (fallback) {
-        g_fallbackTextures[params->id] = fallback;
-        Logging::info("Created fallback texture id=%d %dx%d", params->id, params->displaySizeX, params->displaySizeY);
-    }
-    return fallback;
+    return storeFallbackTexture(params->id, params->displaySizeX, params->displaySizeY, params->format);
 }
 
 void __stdcall SimpleEvaluate(int id, void* color, void* motionVector, void* depth, void* mask,
@@ -191,45 +217,57 @@ void __stdcall EvaluateUpscaler(UpscaleParams* params) {
 
 void __stdcall SetMotionScaleX(int id, float motionScaleX) {
     initialize();
-    if (g_fsr4) { g_fsr4->setMotionScaleX(id, motionScaleX); return; }
+    if (g_fsr4 && g_fsr4->isAvailable()) { g_fsr4->setMotionScaleX(id, motionScaleX); return; }
 }
 
 void __stdcall SetMotionScaleY(int id, float motionScaleX) {
     initialize();
-    if (g_fsr4) { g_fsr4->setMotionScaleY(id, motionScaleX); return; }
+    if (g_fsr4 && g_fsr4->isAvailable()) { g_fsr4->setMotionScaleY(id, motionScaleX); return; }
 }
 
 int __stdcall GetRenderWidth(int id) {
     initialize();
-    if (g_fsr4) return g_fsr4->getRenderWidth(id);
+    if (g_fsr4 && g_fsr4->isAvailable()) {
+        const int w = g_fsr4->getRenderWidth(id);
+        if (w > 0) return w;
+    }
     auto it = g_fallbackTextures.find(id);
-    if (it != g_fallbackTextures.end()) {
+    if (it != g_fallbackTextures.end() && it->second) {
         D3D12_RESOURCE_DESC desc = it->second->GetDesc();
-        return (int)(desc.Width * 0.67f);
+        if (desc.Width > 0) {
+            const int w = (int)(desc.Width * 0.67f);
+            return w > 0 ? w : 1;
+        }
     }
     return 0;
 }
 
 int __stdcall GetRenderHeight(int id) {
     initialize();
-    if (g_fsr4) return g_fsr4->getRenderHeight(id);
+    if (g_fsr4 && g_fsr4->isAvailable()) {
+        const int h = g_fsr4->getRenderHeight(id);
+        if (h > 0) return h;
+    }
     auto it = g_fallbackTextures.find(id);
-    if (it != g_fallbackTextures.end()) {
+    if (it != g_fallbackTextures.end() && it->second) {
         D3D12_RESOURCE_DESC desc = it->second->GetDesc();
-        return (int)(desc.Height * 0.67f);
+        if (desc.Height > 0) {
+            const int h = (int)(desc.Height * 0.67f);
+            return h > 0 ? h : 1;
+        }
     }
     return 0;
 }
 
 float __stdcall GetOptimalSharpness(int id) {
     initialize();
-    if (g_fsr4) return g_fsr4->getOptimalSharpness(id);
+    if (g_fsr4 && g_fsr4->isAvailable()) return g_fsr4->getOptimalSharpness(id);
     return 0.5f;
 }
 
 float __stdcall GetOptimalMipmapBias(int id) {
     initialize();
-    if (g_fsr4) return g_fsr4->getOptimalMipmapBias(id);
+    if (g_fsr4 && g_fsr4->isAvailable()) return g_fsr4->getOptimalMipmapBias(id);
     return 0.0f;
 }
 
@@ -240,24 +278,21 @@ void __stdcall SetDebug(bool debug) {
 
 void __stdcall ReleaseUpscaleFeature(int id) {
     initialize();
-    if (g_fsr4) { g_fsr4->release(id); return; }
-    auto it = g_fallbackTextures.find(id);
-    if (it != g_fallbackTextures.end()) {
-        it->second->Release();
-        g_fallbackTextures.erase(it);
-        Logging::info("Released fallback texture id=%d", id);
+    if (g_fsr4 && g_fsr4->isAvailable()) {
+        g_fsr4->release(id);
     }
+    eraseFallbackTexture(id);
 }
 
 int __stdcall GetJitterPhaseCount(int id) {
     initialize();
-    if (g_fsr4) return g_fsr4->getJitterPhaseCount(id);
+    if (g_fsr4 && g_fsr4->isAvailable()) return g_fsr4->getJitterPhaseCount(id);
     return 1;
 }
 
 int __stdcall GetJitterOffset(float* outX, float* outY, int index, int phaseCount) {
     initialize();
-    if (g_fsr4) return g_fsr4->getJitterOffset(0, outX, outY, index, phaseCount);
+    if (g_fsr4 && g_fsr4->isAvailable()) return g_fsr4->getJitterOffset(0, outX, outY, index, phaseCount);
     return -1;
 }
 
