@@ -406,19 +406,41 @@ static bool ensureRbSwapPipeline(ID3D12Device* device,
     rsDesc.pParameters   = &param;
     rsDesc.Flags         = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
+    bool loadedD3d12 = false;
+    HMODULE d3d12Mod = GetModuleHandleW(L"d3d12.dll");
+    if (!d3d12Mod) {
+        d3d12Mod = LoadLibraryW(L"d3d12.dll");
+        loadedD3d12 = (d3d12Mod != nullptr);
+    }
+    using PFN_D3D12SerializeRootSignature = HRESULT (WINAPI*)(
+        const D3D12_ROOT_SIGNATURE_DESC*, D3D_ROOT_SIGNATURE_VERSION,
+        ID3DBlob**, ID3DBlob**);
+    auto serializeRootSig = d3d12Mod
+        ? (PFN_D3D12SerializeRootSignature)GetProcAddress(d3d12Mod, "D3D12SerializeRootSignature")
+        : nullptr;
+    if (!serializeRootSig) {
+        Logging::error("FSR4Backend: rb-swap failed to resolve d3d12.dll!D3D12SerializeRootSignature (err=%lu)",
+                       GetLastError());
+        if (loadedD3d12) FreeLibrary(d3d12Mod);
+        return false;
+    }
+
     ID3DBlob* sigBlob = nullptr;
     ID3DBlob* errBlob = nullptr;
-    HRESULT hr = D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-                                             &sigBlob, &errBlob);
-    if (FAILED(hr)) {
+    HRESULT hr = serializeRootSig(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+                                  &sigBlob, &errBlob);
+    if (FAILED(hr) || !sigBlob) {
         Logging::error("FSR4Backend: rb-swap SerializeRootSignature hr=%08x", hr);
+        if (sigBlob) sigBlob->Release();
         if (errBlob) errBlob->Release();
+        if (loadedD3d12) FreeLibrary(d3d12Mod);
         return false;
     }
     hr = device->CreateRootSignature(0, sigBlob->GetBufferPointer(),
              sigBlob->GetBufferSize(), IID_PPV_ARGS(outRootSig));
     sigBlob->Release();
     if (errBlob) errBlob->Release();
+    if (loadedD3d12) FreeLibrary(d3d12Mod);
     if (FAILED(hr)) {
         Logging::error("FSR4Backend: rb-swap CreateRootSignature hr=%08x", hr);
         return false;
@@ -726,9 +748,20 @@ void FSR4Backend::logSystemInfo() {
         // can throw or mismatch. A failure here is cosmetic (we just lose the
         // GPU name), so never let it abort setup() -> FSR4 must still init.
         try {
-        LUID devLuid = m_impl->device->GetAdapterLuid();
+        using PFN_CreateDXGIFactory1 = HRESULT (WINAPI*)(REFIID, void**);
+        bool loadedDxgi = false;
+        HMODULE dxgiMod = GetModuleHandleW(L"dxgi.dll");
+        if (!dxgiMod) {
+            dxgiMod = LoadLibraryW(L"dxgi.dll");
+            loadedDxgi = (dxgiMod != nullptr);
+        }
+        auto createDXGIFactory1Fn = dxgiMod
+            ? (PFN_CreateDXGIFactory1)GetProcAddress(dxgiMod, "CreateDXGIFactory1")
+            : nullptr;
+
         IDXGIFactory4* factory = nullptr;
-        if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
+        if (createDXGIFactory1Fn && SUCCEEDED(createDXGIFactory1Fn(IID_PPV_ARGS(&factory))) && factory) {
+            LUID devLuid = m_impl->device->GetAdapterLuid();
             IDXGIAdapter* matched = nullptr;
             for (UINT i = 0; ; i++) {
                 IDXGIAdapter* ad = nullptr;
@@ -750,6 +783,7 @@ void FSR4Backend::logSystemInfo() {
             if (matched) matched->Release();
             factory->Release();
         }
+        if (loadedDxgi) FreeLibrary(dxgiMod);
         } catch (...) {
             strncpy_s(gpuName, "<unknown GPU (DXGI probe failed)>", sizeof(gpuName) - 1);
         }
