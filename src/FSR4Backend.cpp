@@ -334,6 +334,81 @@ struct FSR4Backend::Impl {
     ID3D12RootSignature* rbSwapRootSig = nullptr;
     ID3D12PipelineState* rbSwapPso     = nullptr;
     bool                 rbSwapEnabled = false;
+
+    static void cleanupSetupState(Impl* impl) {
+        if (!impl) return;
+        for (auto& [id, ctx] : impl->contexts) {
+            if (ctx.ffxCtx && impl->ffxDestroyContextFn) {
+                impl->ffxDestroyContextFn(&ctx.ffxCtx, nullptr);
+            }
+            if (ctx.outputTexture) {
+                ctx.outputTexture->Release();
+                ctx.outputTexture = nullptr;
+            }
+            if (ctx.swapTexture) {
+                ctx.swapTexture->Release();
+                ctx.swapTexture = nullptr;
+            }
+            if (ctx.swapHeap) {
+                ctx.swapHeap->Release();
+                ctx.swapHeap = nullptr;
+            }
+        }
+        impl->contexts.clear();
+
+        if (impl->rbSwapPso) {
+            impl->rbSwapPso->Release();
+            impl->rbSwapPso = nullptr;
+        }
+        if (impl->rbSwapRootSig) {
+            impl->rbSwapRootSig->Release();
+            impl->rbSwapRootSig = nullptr;
+        }
+        impl->rbSwapEnabled = false;
+
+        if (impl->cmdList) {
+            impl->cmdList->Release();
+            impl->cmdList = nullptr;
+        }
+        if (impl->cmdAlloc) {
+            impl->cmdAlloc->Release();
+            impl->cmdAlloc = nullptr;
+        }
+        if (impl->fence) {
+            impl->fence->Release();
+            impl->fence = nullptr;
+        }
+        impl->fenceValue = 0;
+        if (impl->fenceEvent) {
+            CloseHandle(impl->fenceEvent);
+            impl->fenceEvent = nullptr;
+        }
+
+        if (impl->commandQueue) {
+            impl->commandQueue->Release();
+            impl->commandQueue = nullptr;
+        }
+        if (impl->device) {
+            impl->device->Release();
+            impl->device = nullptr;
+        }
+
+        impl->ffxCreateContextFn   = nullptr;
+        impl->ffxDestroyContextFn  = nullptr;
+        impl->ffxDispatchFn        = nullptr;
+        impl->ffxQueryFn           = nullptr;
+        impl->ffxGetResourceFn     = nullptr;
+        impl->chosenVersionId      = 0;
+        impl->chosenVersionName[0] = '\0';
+
+        if (impl->hLoaderDll) {
+            FreeLibrary(impl->hLoaderDll);
+            impl->hLoaderDll = nullptr;
+        }
+
+        impl->available   = false;
+        impl->graphicsAPI = 0;
+    }
 };
 
 // -----------------------------------------------------------------------
@@ -342,22 +417,11 @@ struct FSR4Backend::Impl {
 FSR4Backend::FSR4Backend() { m_impl = new Impl(); }
 
 FSR4Backend::~FSR4Backend() {
-    for (auto& [id, ctx] : m_impl->contexts) {
-        if (ctx.ffxCtx && m_impl->ffxDestroyContextFn)
-            m_impl->ffxDestroyContextFn(&ctx.ffxCtx, nullptr);
-        if (ctx.outputTexture) ctx.outputTexture->Release();
+    if (m_impl) {
+        Impl::cleanupSetupState(m_impl);
+        delete m_impl;
+        m_impl = nullptr;
     }
-    m_impl->contexts.clear();
-    if (m_impl->rbSwapPso)     m_impl->rbSwapPso->Release();
-    if (m_impl->rbSwapRootSig) m_impl->rbSwapRootSig->Release();
-    if (m_impl->cmdList)  m_impl->cmdList->Release();
-    if (m_impl->cmdAlloc) m_impl->cmdAlloc->Release();
-    if (m_impl->fence)    m_impl->fence->Release();
-    if (m_impl->fenceEvent) CloseHandle(m_impl->fenceEvent);
-    if (m_impl->commandQueue) m_impl->commandQueue->Release();
-    if (m_impl->device) m_impl->device->Release();
-    if (m_impl->hLoaderDll) FreeLibrary(m_impl->hLoaderDll);
-    delete m_impl;
 }
 
 static void messageCallback(uint32_t type, const wchar_t* message) {
@@ -546,13 +610,20 @@ static void recordRbSwap(ID3D12RootSignature* rootSig, ID3D12PipelineState* pso,
 }
 
 bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
+    Impl::cleanupSetupState(m_impl);
     Logging::info("FSR4Backend::setup(graphicsAPI=%d)", graphicsAPI);
-    readBackendIni();
-    m_impl->graphicsAPI = graphicsAPI;
-    if (graphicsAPI == 0) {
-        Logging::warn("FSR4Backend: D3D11 not supported, need D3D12");
+
+    if (graphicsAPI != 1) {
+        Logging::warn("FSR4Backend: Unsupported graphicsAPI=%d (D3D12 required)", graphicsAPI);
         return false;
     }
+    if (!deviceOrQueue) {
+        Logging::error("FSR4Backend: setup() called with null deviceOrQueue");
+        return false;
+    }
+
+    m_impl->graphicsAPI = graphicsAPI;
+    readBackendIni();
 
     // Guard the entire init path. REFramework calls this from a __stdcall export
     // during on_initialize(); any C++ exception or SEH (access violation) inside
@@ -563,29 +634,43 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
     // crashing. (Matches the try/catch already around evaluate().)
     try {
     ID3D12CommandQueue* queue = (ID3D12CommandQueue*)deviceOrQueue;
-    if (queue) {
-        if (FAILED(queue->GetDevice(IID_PPV_ARGS(&m_impl->device)))) {
-            Logging::error("FSR4Backend: Failed to get D3D12 device from queue");
-            return false;
-        }
-        Logging::info("FSR4Backend: Got D3D12 device");
-        m_impl->commandQueue = queue;
-        m_impl->commandQueue->AddRef();
+    if (FAILED(queue->GetDevice(IID_PPV_ARGS(&m_impl->device))) || !m_impl->device) {
+        Logging::error("FSR4Backend: Failed to get D3D12 device from queue");
+        Impl::cleanupSetupState(m_impl);
+        return false;
     }
+    Logging::info("FSR4Backend: Got D3D12 device");
+    m_impl->commandQueue = queue;
+    m_impl->commandQueue->AddRef();
 
-    const char* loaderNames[] = {
-        "amd_fidelityfx_loader_dx12.dll",
-        "amd_fidelityfx_loader.dll"
+    const std::wstring dllDir = Logging::getDllDir();
+    const wchar_t* loaderNames[] = {
+        L"amd_fidelityfx_loader_dx12.dll",
+        L"amd_fidelityfx_loader.dll"
     };
     m_impl->hLoaderDll = nullptr;
-    for (auto name : loaderNames) {
-        Logging::info("FSR4Backend: Loading %s...", name);
-        m_impl->hLoaderDll = LoadLibraryA(name);
-        if (m_impl->hLoaderDll) {
-            Logging::info("FSR4Backend: Loaded %s", name);
-            break;
+    if (!dllDir.empty()) {
+        for (const wchar_t* name : loaderNames) {
+            const std::wstring fullPath = dllDir + L"\\" + name;
+            Logging::info("FSR4Backend: Probing %ls...", fullPath.c_str());
+            m_impl->hLoaderDll = LoadLibraryExW(fullPath.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+            if (m_impl->hLoaderDll) {
+                Logging::info("FSR4Backend: Loaded %ls", fullPath.c_str());
+                break;
+            }
+            Logging::warn("FSR4Backend: Probe failed for %ls (err=%lu)", fullPath.c_str(), GetLastError());
         }
-        Logging::warn("FSR4Backend: Failed to load %s (err=%d)", name, GetLastError());
+    }
+    if (!m_impl->hLoaderDll) {
+        for (const wchar_t* name : loaderNames) {
+            Logging::info("FSR4Backend: Loading %ls...", name);
+            m_impl->hLoaderDll = LoadLibraryW(name);
+            if (m_impl->hLoaderDll) {
+                Logging::info("FSR4Backend: Loaded %ls", name);
+                break;
+            }
+            Logging::warn("FSR4Backend: Failed to load %ls (err=%lu)", name, GetLastError());
+        }
     }
     if (!m_impl->hLoaderDll) {
         // The FFX loader + FSR4 shader/payload files ship alongside the game, NOT
@@ -598,6 +683,7 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
         Logging::error("upscaler folder): amd_fidelityfx_loader_dx12.dll (and the FSR4");
         Logging::error("shader/payload files it depends on). See the mod's install notes.");
         Logging::error("=============================================================");
+        Impl::cleanupSetupState(m_impl);
         return false;
     }
 
@@ -609,34 +695,59 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
 
     if (!m_impl->ffxCreateContextFn || !m_impl->ffxDestroyContextFn || !m_impl->ffxDispatchFn) {
         Logging::warn("FSR4Backend: Missing required ffxApi entry points");
-        FreeLibrary(m_impl->hLoaderDll);
-        m_impl->hLoaderDll = nullptr;
+        Impl::cleanupSetupState(m_impl);
         return false;
     }
 
     Logging::info("FSR4Backend: ffxApi loaded successfully");
 
     // Create internal command allocator and list for when REFramework doesn't provide one
-    if (SUCCEEDED(m_impl->device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-            IID_PPV_ARGS(&m_impl->cmdAlloc)))) {
-        if (FAILED(m_impl->device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                m_impl->cmdAlloc, nullptr, IID_PPV_ARGS(&m_impl->cmdList)))) {
-            Logging::warn("FSR4Backend: Failed to create command list");
-        } else {
-            m_impl->cmdList->Close(); // Reset() requires the list to be closed
-        }
-    } else {
-        Logging::warn("FSR4Backend: Failed to create command allocator");
+    HRESULT hr = m_impl->device->CreateCommandAllocator(
+        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_impl->cmdAlloc));
+    if (FAILED(hr) || !m_impl->cmdAlloc) {
+        Logging::error("FSR4Backend: Failed to create command allocator (hr=%08x)", hr);
+        Impl::cleanupSetupState(m_impl);
+        return false;
     }
 
-    m_impl->device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_impl->fence));
+    hr = m_impl->device->CreateCommandList(
+        0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_impl->cmdAlloc, nullptr, IID_PPV_ARGS(&m_impl->cmdList));
+    if (FAILED(hr) || !m_impl->cmdList) {
+        Logging::error("FSR4Backend: Failed to create command list (hr=%08x)", hr);
+        Impl::cleanupSetupState(m_impl);
+        return false;
+    }
+
+    hr = m_impl->cmdList->Close(); // Reset() requires the list to be closed
+    if (FAILED(hr)) {
+        Logging::error("FSR4Backend: Failed to close initial command list (hr=%08x)", hr);
+        Impl::cleanupSetupState(m_impl);
+        return false;
+    }
+
+    hr = m_impl->device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_impl->fence));
+    if (FAILED(hr) || !m_impl->fence) {
+        Logging::error("FSR4Backend: Failed to create fence (hr=%08x)", hr);
+        Impl::cleanupSetupState(m_impl);
+        return false;
+    }
+
     m_impl->fenceEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    if (!m_impl->fenceEvent) {
+        Logging::error("FSR4Backend: Failed to create fence event (err=%lu)", GetLastError());
+        Impl::cleanupSetupState(m_impl);
+        return false;
+    }
 
     // Enumerate the FSR versions this GPU actually supports and remember the
     // newest one, so every context we create runs a version the GPU can do
     // (FSR4 4.1.1 if it can, else FSR3.1, ...). Without this, requesting 4.1.1
     // on an unsupported GPU makes ffxCreateContext fail -> no upscaling.
-    selectFsrVersion();
+    if (!selectFsrVersion()) {
+        Logging::error("FSR4Backend: Failed to enumerate any supported FSR version");
+        Impl::cleanupSetupState(m_impl);
+        return false;
+    }
 
     // FSR version + GPU: printed ONCE and in BOTH verbosity modes (gated on
     // the preset actually loading, so we never spam before init succeeds).
@@ -647,16 +758,16 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
     } catch (const std::exception& e) {
         Logging::error("=============================================================");
         Logging::error("FSR4Backend: setup() threw: %s", e.what());
-        Logging::error("FSR4 disabled this run; the game will use its native upscaler.");
+        Logging::error("FSR4Backend disabled this run; the game will use its native upscaler.");
         Logging::error("=============================================================");
-        m_impl->available = false;
+        Impl::cleanupSetupState(m_impl);
         return false;
     } catch (...) {
         Logging::error("=============================================================");
         Logging::error("FSR4Backend: setup() threw an unknown exception (SEH/AV?).");
         Logging::error("FSR4 disabled this run; the game will use its native upscaler.");
         Logging::error("=============================================================");
-        m_impl->available = false;
+        Impl::cleanupSetupState(m_impl);
         return false;
     }
 }
