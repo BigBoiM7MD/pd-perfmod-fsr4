@@ -96,6 +96,19 @@ static void eraseFallbackTexture(int id) {
     }
 }
 
+static void clearFallbackTextures() {
+    for (auto& [id, res] : g_fallbackTextures) {
+        if (res) {
+            try {
+                res->Release();
+            } catch (...) {
+                safeStderrWarn("[PDPerfPlugin] clearFallbackTextures: Release threw exception for id=%d\n", id);
+            }
+        }
+    }
+    g_fallbackTextures.clear();
+}
+
 static ID3D12Resource* storeFallbackTexture(int id, int displaySizeX, int displaySizeY, int format) {
     eraseFallbackTexture(id);
     ID3D12Resource* fallback = createFallbackTexture(displaySizeX, displaySizeY, format);
@@ -109,6 +122,8 @@ static ID3D12Resource* storeFallbackTexture(int id, int displaySizeX, int displa
 bool __stdcall SetupDirectX(void* item, int graphicsAPI) {
     initialize();
     Logging::info("SetupDirectX(graphicsAPI=%d)", graphicsAPI);
+
+    clearFallbackTextures();
 
     if (g_d3d12Device) {
         try {
