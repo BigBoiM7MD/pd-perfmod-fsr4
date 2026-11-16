@@ -43,3 +43,54 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     PREFIX ""
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
 )
+
+include(CTest)
+
+if(BUILD_TESTING)
+    add_library(mock_ffx_loader SHARED tests/mock_ffx_loader.cpp)
+    target_compile_options(mock_ffx_loader PRIVATE /EHsc)
+    set_target_properties(mock_ffx_loader PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test_fixtures"
+        OUTPUT_NAME "amd_fidelityfx_loader_dx12"
+        PREFIX ""
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+
+    add_executable(test_phase1_startup tests/test_phase1_startup.cpp)
+    target_include_directories(test_phase1_startup PRIVATE include)
+    target_compile_options(test_phase1_startup PRIVATE /EHsc)
+    set_target_properties(test_phase1_startup PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+
+    add_executable(test_phase1_fallback_com tests/test_phase1_fallback_com.cpp)
+    target_include_directories(test_phase1_fallback_com PRIVATE include)
+    target_compile_options(test_phase1_fallback_com PRIVATE /EHsc)
+    set_target_properties(test_phase1_fallback_com PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+
+    if(CMAKE_CROSSCOMPILING)
+        find_program(WINE_EXECUTABLE wine REQUIRED)
+        add_test(NAME phase1_startup
+            COMMAND "${CMAKE_COMMAND}" -E env WINEDEBUG=-all "${WINE_EXECUTABLE}"
+                "$<TARGET_FILE:test_phase1_startup>"
+                "$<TARGET_FILE:${PROJECT_NAME}>"
+        )
+        add_test(NAME phase1_fallback_com
+            COMMAND "${CMAKE_COMMAND}" -E env WINEDEBUG=-all "${WINE_EXECUTABLE}"
+                "$<TARGET_FILE:test_phase1_fallback_com>"
+                "$<TARGET_FILE:${PROJECT_NAME}>"
+                "$<TARGET_FILE:mock_ffx_loader>"
+        )
+    else()
+        add_test(NAME phase1_startup
+            COMMAND test_phase1_startup "$<TARGET_FILE:${PROJECT_NAME}>"
+        )
+        add_test(NAME phase1_fallback_com
+            COMMAND test_phase1_fallback_com
+                "$<TARGET_FILE:${PROJECT_NAME}>"
+                "$<TARGET_FILE:mock_ffx_loader>"
+        )
+    endif()
+endif()
