@@ -176,7 +176,7 @@ so there are no FFX SDK include/lib paths to configure.
 
 - Windows 10 / 11
 - **Visual Studio 2022** (Community is fine) with the *Desktop development with C++* workload
-- **CMake** >= 3.10 (bundled with VS2022, or standalone)
+- **CMake** >= 3.15 (bundled with VS2022, or standalone)
 - **Git**
 
 ### Steps
