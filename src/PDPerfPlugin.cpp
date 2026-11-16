@@ -17,7 +17,6 @@ static INIT_ONCE g_initOnce = INIT_ONCE_STATIC_INIT;
 static void (*g_logDelegate)(char*, int) = nullptr;
 
 static ID3D12Device* g_d3d12Device = nullptr;
-static ID3D12CommandQueue* g_d3d12Queue = nullptr;
 static std::unordered_map<int, ID3D12Resource*> g_fallbackTextures;
 
 static void logCallback(char* message, int iSize) {
@@ -142,12 +141,11 @@ bool __stdcall SetupDirectX(void* item, int graphicsAPI) {
         }
         g_d3d12Device = nullptr;
     }
-    g_d3d12Queue = nullptr;
 
     if (graphicsAPI == 1 && item != nullptr) {
         try {
-            g_d3d12Queue = (ID3D12CommandQueue*)item;
-            if (FAILED(g_d3d12Queue->GetDevice(IID_PPV_ARGS(&g_d3d12Device))) || !g_d3d12Device) {
+            ID3D12CommandQueue* queue = static_cast<ID3D12CommandQueue*>(item);
+            if (FAILED(queue->GetDevice(IID_PPV_ARGS(&g_d3d12Device))) || !g_d3d12Device) {
                 g_d3d12Device = nullptr;
             }
         } catch (...) {
