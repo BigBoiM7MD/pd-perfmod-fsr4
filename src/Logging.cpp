@@ -178,20 +178,26 @@ std::wstring Logging::getDllDir() {
     return resolveModuleDirectoryW(reinterpret_cast<LPCWSTR>(&Logging::getDllDir));
 }
 
-std::wstring Logging::getIniPath() {
+std::wstring Logging::getDllSiblingPath(const wchar_t* filename) {
+    if (!filename || !*filename) {
+        return L"";
+    }
     const std::wstring dir = getDllDir();
     if (dir.empty()) {
-        return PD_LOG_INI_NAME_W;
+        return filename;
     }
-    return normalizeExtendedPathW(dir + L"\\" + PD_LOG_INI_NAME_W);
+    if (dir.back() == L'\\' || dir.back() == L'/') {
+        return normalizeExtendedPathW(dir + filename);
+    }
+    return normalizeExtendedPathW(dir + L"\\" + filename);
+}
+
+std::wstring Logging::getIniPath() {
+    return getDllSiblingPath(PD_LOG_INI_NAME_W);
 }
 
 std::wstring Logging::getLogPath() {
-    const std::wstring dir = getDllDir();
-    if (dir.empty()) {
-        return PD_LOG_FILE_NAME_W;
-    }
-    return normalizeExtendedPathW(dir + L"\\" + PD_LOG_FILE_NAME_W);
+    return getDllSiblingPath(PD_LOG_FILE_NAME_W);
 }
 
 BOOL CALLBACK Logging::loggingInitOnce(PINIT_ONCE, PVOID, PVOID*) {

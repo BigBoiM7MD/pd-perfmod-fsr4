@@ -651,7 +651,10 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
     m_impl->hLoaderDll = nullptr;
     if (!dllDir.empty()) {
         for (const wchar_t* name : loaderNames) {
-            const std::wstring fullPath = dllDir + L"\\" + name;
+            const std::wstring fullPath = Logging::getDllSiblingPath(name);
+            if (fullPath.empty()) {
+                continue;
+            }
             Logging::info("FSR4Backend: Probing %ls...", fullPath.c_str());
             m_impl->hLoaderDll = LoadLibraryExW(fullPath.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
             if (m_impl->hLoaderDll) {

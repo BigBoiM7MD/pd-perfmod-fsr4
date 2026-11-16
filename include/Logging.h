@@ -34,6 +34,7 @@ public:
     // Shared wide-char path helpers safe past MAX_PATH and on non-ASCII paths.
     // Returned by value so no static std::wstring destructor runs on unload.
     static std::wstring getDllDir();
+    static std::wstring getDllSiblingPath(const wchar_t* filename);
     static std::wstring getIniPath();
     static std::wstring getLogPath();
 
