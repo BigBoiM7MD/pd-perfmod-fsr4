@@ -2,11 +2,14 @@
 
 #include <cstdio>
 #include <cstdarg>
+#include <string>
 #include <Windows.h>
 
 // INI + log file live beside the DLL, named after the repo.
-#define PD_LOG_INI_NAME   "pd-perfmod-fsr4.ini"
-#define PD_LOG_FILE_NAME  "pd-perfmod-fsr4.log"
+#define PD_LOG_INI_NAME     "pd-perfmod-fsr4.ini"
+#define PD_LOG_FILE_NAME    "pd-perfmod-fsr4.log"
+#define PD_LOG_INI_NAME_W   L"pd-perfmod-fsr4.ini"
+#define PD_LOG_FILE_NAME_W  L"pd-perfmod-fsr4.log"
 
 // NOTE: we intentionally do NOT use std::mutex for the log lock. A static
 // std::mutex depends on its C++ dynamic initializer (_Mtx_init) having run;
@@ -28,10 +31,17 @@ public:
 
     static bool isVerbose() { return s_verbose; }
 
+    // Shared wide-char path helpers safe past MAX_PATH and on non-ASCII paths.
+    // Returned by value so no static std::wstring destructor runs on unload.
+    static std::wstring getDllDir();
+    static std::wstring getIniPath();
+    static std::wstring getLogPath();
+
 private:
+    static BOOL CALLBACK loggingInitOnce(PINIT_ONCE initOnce, PVOID param, PVOID* context);
     static void vlog(const char* level, const char* fmt, va_list args);
     static FILE* s_file;
     static SRWLOCK s_lock;
     static bool s_verbose;
-    static bool s_inited;
+    static INIT_ONCE s_initOnce;
 };
