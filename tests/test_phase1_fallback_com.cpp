@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "PDPerfPlugin.h"
 #include "mock_d3d12.h"
@@ -37,8 +38,103 @@ static std::wstring normalizeAbsPathW(const wchar_t* path) {
     return out;
 }
 
+static std::wstring toExtendedPathW(std::wstring path) {
+    for (wchar_t& ch : path) {
+        if (ch == L'/') ch = L'\\';
+    }
+    if (path.compare(0, 4, L"\\\\?\\") == 0 || path.compare(0, 4, L"\\\\.\\") == 0) {
+        return path;
+    }
+    if (path.size() >= MAX_PATH) {
+        if (path.size() >= 3 &&
+            ((path[0] >= L'A' && path[0] <= L'Z') || (path[0] >= L'a' && path[0] <= L'z')) &&
+            path[1] == L':' && path[2] == L'\\') {
+            return L"\\\\?\\" + path;
+        }
+        if (path.size() >= 2 && path[0] == L'\\' && path[1] == L'\\') {
+            return L"\\\\?\\UNC\\" + path.substr(2);
+        }
+    }
+    return path;
+}
+
+static bool createDirRecursiveW(const std::wstring& dir) {
+    if (dir.empty()) return false;
+    std::wstring clean = dir;
+    for (wchar_t& ch : clean) {
+        if (ch == L'/') ch = L'\\';
+    }
+    while (clean.size() > 3 && clean.back() == L'\\') {
+        clean.pop_back();
+    }
+
+    size_t pos = 0;
+    if (clean.size() >= 3 && clean[1] == L':' && clean[2] == L'\\') {
+        pos = 3;
+    } else if (clean.size() >= 2 && clean[0] == L'\\' && clean[1] == L'\\') {
+        pos = 2;
+    }
+
+    while (pos <= clean.size()) {
+        const size_t next = clean.find(L'\\', pos);
+        const std::wstring sub = (next == std::wstring::npos) ? clean : clean.substr(0, next);
+        if (!sub.empty()) {
+            const std::wstring ext = toExtendedPathW(sub);
+            if (!CreateDirectoryW(ext.c_str(), nullptr)) {
+                const DWORD err = GetLastError();
+                if (err != ERROR_ALREADY_EXISTS) {
+                    return false;
+                }
+            }
+        }
+        if (next == std::wstring::npos) break;
+        pos = next + 1;
+    }
+    return true;
+}
+
+static bool writeBytesW(const std::wstring& path, const std::string& content) {
+    const std::wstring ext = toExtendedPathW(path);
+    HANDLE hFile = CreateFileW(ext.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL, nullptr);
+    TEST_CHECK_BOOL(hFile != INVALID_HANDLE_VALUE);
+    DWORD written = 0;
+    const BOOL ok = content.empty() ||
+        (WriteFile(hFile, content.data(), static_cast<DWORD>(content.size()), &written, nullptr) &&
+         written == content.size());
+    CloseHandle(hFile);
+    return ok != FALSE;
+}
+
+static bool readAllBytesW(const std::wstring& path, std::vector<uint8_t>& outBytes) {
+    const std::wstring ext = toExtendedPathW(path);
+    HANDLE hFile = CreateFileW(ext.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    TEST_CHECK_BOOL(hFile != INVALID_HANDLE_VALUE);
+    LARGE_INTEGER sz{};
+    const BOOL gotSize = GetFileSizeEx(hFile, &sz);
+    if (!gotSize || sz.QuadPart <= 0 || sz.QuadPart > 64 * 1024 * 1024) {
+        CloseHandle(hFile);
+        return false;
+    }
+    outBytes.resize(static_cast<size_t>(sz.QuadPart));
+    DWORD totalRead = 0;
+    while (totalRead < outBytes.size()) {
+        DWORD chunk = 0;
+        if (!ReadFile(hFile, outBytes.data() + totalRead,
+                      static_cast<DWORD>(outBytes.size() - totalRead), &chunk, nullptr) ||
+            chunk == 0) {
+            CloseHandle(hFile);
+            return false;
+        }
+        totalRead += chunk;
+    }
+    CloseHandle(hFile);
+    return true;
+}
+
 static void deleteTreeW(const std::wstring& dir) {
-    const std::wstring pattern = dir + L"\\*";
+    const std::wstring pattern = toExtendedPathW(dir + L"\\*");
     WIN32_FIND_DATAW fd{};
     HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
     if (hFind != INVALID_HANDLE_VALUE) {
@@ -50,12 +146,12 @@ static void deleteTreeW(const std::wstring& dir) {
             if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
                 deleteTreeW(child);
             } else {
-                DeleteFileW(child.c_str());
+                DeleteFileW(toExtendedPathW(child).c_str());
             }
         } while (FindNextFileW(hFind, &fd));
         FindClose(hFind);
     }
-    RemoveDirectoryW(dir.c_str());
+    RemoveDirectoryW(toExtendedPathW(dir).c_str());
 }
 
 struct PluginApi {
@@ -198,8 +294,34 @@ static bool runNoLoaderCase(const std::wstring& srcPluginDll, const std::wstring
     TEST_CHECK_BOOL(api.GetRenderWidth(1) == 0);
     TEST_CHECK_BOOL(api.GetRenderHeight(1) == 0);
 
-    // SetupDirectX(nullptr, 1) releases g_d3d12Device back to baseline 1
+    // sRGB UAV failure retries with R8G8B8A8_UNORM and SetupDirectX clears g_fallbackTextures
+    dev->failUavOnSrgbFormat = true;
+    void* texSrgb = api.SimpleInit(3, 1, 2, 1280, 720, false, false, false, false, false, false, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
+    TEST_CHECK_BOOL(texSrgb != nullptr);
+    TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 1);
+    TEST_CHECK_BOOL(dev->lastCreatedDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM);
+    TEST_CHECK_BOOL(dev->lastCreatedDesc.Flags == D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    TEST_CHECK_BOOL(dev->lastInitialState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    TEST_CHECK_BOOL(api.GetRenderWidth(3) == static_cast<int>(1280 * 0.67f));
+    dev->failUavOnSrgbFormat = false;
+
+    // Device re-setup clears g_fallbackTextures even without ReleaseUpscaleFeature
+    TEST_CHECK_BOOL(api.SetupDirectX(queue, 1) == false);
+    TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 0);
+    TEST_CHECK_BOOL(api.GetRenderWidth(3) == 0);
+    TEST_CHECK_BOOL(api.GetRenderHeight(3) == 0);
+    TEST_CHECK_BOOL(dev->refCount() == 2);
+
+    // Recreate fallback texture, then verify SetupDirectX(nullptr, 1) teardown clears it too
+    void* texTeardown = api.SimpleInit(4, 1, 2, 800, 600, false, false, false, false, false, false, DXGI_FORMAT_R8G8B8A8_UNORM);
+    TEST_CHECK_BOOL(texTeardown != nullptr);
+    TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 1);
+
+    // SetupDirectX(nullptr, 1) releases g_d3d12Device back to baseline 1 and clears fallback textures
     TEST_CHECK_BOOL(api.SetupDirectX(nullptr, 1) == false);
+    TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 0);
+    TEST_CHECK_BOOL(api.GetRenderWidth(4) == 0);
+    TEST_CHECK_BOOL(api.GetRenderHeight(4) == 0);
     TEST_CHECK_BOOL(dev->refCount() == 1);
     TEST_CHECK_BOOL(queue->refCount() == 1);
 
@@ -242,6 +364,7 @@ static bool runMockLoaderCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(MockD3D12Device::liveAllocators.load() == 0);
     TEST_CHECK_BOOL(MockD3D12Device::liveLists.load() == 0);
     TEST_CHECK_BOOL(MockD3D12Device::liveFences.load() == 0);
+    TEST_CHECK_BOOL(dev->refCount() == 2);
     TEST_CHECK_BOOL(queue->refCount() == 1);
     dev->failCreateCommandAllocator = false;
 
@@ -251,6 +374,7 @@ static bool runMockLoaderCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(MockD3D12Device::liveAllocators.load() == 0);
     TEST_CHECK_BOOL(MockD3D12Device::liveLists.load() == 0);
     TEST_CHECK_BOOL(MockD3D12Device::liveFences.load() == 0);
+    TEST_CHECK_BOOL(dev->refCount() == 2);
     TEST_CHECK_BOOL(queue->refCount() == 1);
     dev->failCreateCommandList = false;
 
@@ -260,6 +384,7 @@ static bool runMockLoaderCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(MockD3D12Device::liveAllocators.load() == 0);
     TEST_CHECK_BOOL(MockD3D12Device::liveLists.load() == 0);
     TEST_CHECK_BOOL(MockD3D12Device::liveFences.load() == 0);
+    TEST_CHECK_BOOL(dev->refCount() == 2);
     TEST_CHECK_BOOL(queue->refCount() == 1);
     dev->failCreateFence = false;
 
@@ -269,9 +394,10 @@ static bool runMockLoaderCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(MockD3D12Device::liveAllocators.load() == 0);
     TEST_CHECK_BOOL(MockD3D12Device::liveLists.load() == 0);
     TEST_CHECK_BOOL(MockD3D12Device::liveFences.load() == 0);
+    TEST_CHECK_BOOL(dev->refCount() == 2);
     TEST_CHECK_BOOL(queue->refCount() == 1);
 
-    // 5) Setup succeeds, then ffxCreateContext fails -> fallback texture is returned and reachable
+    // 5) Setup succeeds, then ffxCreateContext fails -> InitUpscaler & SimpleInit return fallback textures
     TEST_CHECK_BOOL(SetEnvironmentVariableA("PD_MOCK_FFX_VERSIONS", "1") != FALSE);
     TEST_CHECK_BOOL(SetEnvironmentVariableA("PD_MOCK_FFX_CREATE_FAIL", "1") != FALSE);
     TEST_CHECK_BOOL(api.SetupDirectX(queue, 1) == true);
@@ -292,6 +418,19 @@ static bool runMockLoaderCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(dev->lastInitialState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     TEST_CHECK_BOOL(api.GetRenderWidth(1) == static_cast<int>(1920 * 0.67f));
     TEST_CHECK_BOOL(api.GetRenderHeight(1) == static_cast<int>(1080 * 0.67f));
+
+    void* simpleFallback = api.SimpleInit(2, 1, 2, 1600, 900, false, false, false, false, false, false, DXGI_FORMAT_R8G8B8A8_UNORM);
+    TEST_CHECK_BOOL(simpleFallback != nullptr);
+    TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 2);
+    TEST_CHECK_BOOL(dev->lastCreatedDesc.Flags == D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    TEST_CHECK_BOOL(dev->lastInitialState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    TEST_CHECK_BOOL(api.GetRenderWidth(2) == static_cast<int>(1600 * 0.67f));
+    TEST_CHECK_BOOL(api.GetRenderHeight(2) == static_cast<int>(900 * 0.67f));
+
+    api.ReleaseUpscaleFeature(2);
+    TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 1);
+    TEST_CHECK_BOOL(api.GetRenderWidth(2) == 0);
+    TEST_CHECK_BOOL(api.GetRenderHeight(2) == 0);
 
     api.ReleaseUpscaleFeature(1);
     TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 0);
@@ -320,13 +459,112 @@ static bool runMockLoaderCase(const std::wstring& srcPluginDll,
     return true;
 }
 
+static std::wstring buildExactLenShortSegDirW(const std::wstring& baseDir, size_t targetLen) {
+    std::wstring dir = baseDir;
+    int idx = 0;
+    while (dir.size() + 10 < targetLen) {
+        wchar_t seg[16];
+        swprintf(seg, 16, L"\\s%06d", idx++);
+        dir += seg;
+    }
+    size_t rem = (targetLen > dir.size()) ? (targetLen - dir.size()) : 0;
+    if (rem == 10) {
+        dir += L"\\a123";
+        rem -= 5;
+    }
+    if (rem >= 2 && rem <= 9) {
+        dir.push_back(L'\\');
+        dir.append(rem - 1, L'x');
+    }
+    return dir;
+}
+
+static bool runBoundaryDllDirCase(const std::wstring& srcPluginDll,
+                                  const std::wstring& srcMockLoaderDll,
+                                  const std::wstring& tempRoot) {
+    printf("[Case 3] Testing 229..259-char dllDir loader probe + readBackendIni...\n");
+    const std::wstring caseRoot = tempRoot + L"\\c3";
+    deleteTreeW(caseRoot);
+    TEST_CHECK_BOOL(caseRoot.size() < 220);
+
+    const std::wstring dir = buildExactLenShortSegDirW(caseRoot, 241);
+    TEST_CHECK_BOOL(dir.size() >= 229 && dir.size() <= 259);
+    TEST_CHECK_BOOL(createDirRecursiveW(dir));
+
+    const std::wstring dstPlugin = dir + L"\\PDPerfPlugin.dll";
+    const std::wstring dstLoader = dir + L"\\amd_fidelityfx_loader_dx12.dll";
+    const std::wstring iniPath   = dir + L"\\pd-perfmod-fsr4.ini";
+    const std::wstring logPath   = dir + L"\\pd-perfmod-fsr4.log";
+    TEST_CHECK_BOOL(dstPlugin.size() < MAX_PATH);
+    TEST_CHECK_BOOL(dstLoader.size() >= MAX_PATH);
+    TEST_CHECK_BOOL(iniPath.size() >= MAX_PATH);
+
+    TEST_CHECK_BOOL(CopyFileW(toExtendedPathW(srcPluginDll).c_str(),
+                              toExtendedPathW(dstPlugin).c_str(), FALSE) != FALSE);
+    TEST_CHECK_BOOL(CopyFileW(toExtendedPathW(srcMockLoaderDll).c_str(),
+                              toExtendedPathW(dstLoader).c_str(), FALSE) != FALSE);
+    TEST_CHECK_BOOL(writeBytesW(iniPath, "[Logging]\nVerbose=0\n[Backend]\nOutputFormat=10\n"));
+
+    SetEnvironmentVariableA("PD_MOCK_FFX_VERSIONS", "1");
+    SetEnvironmentVariableA("PD_MOCK_FFX_CREATE_FAIL", nullptr);
+
+    PluginApi api;
+    TEST_CHECK_BOOL(api.load(dstPlugin));
+
+    auto* dev   = new MockD3D12Device();
+    auto* queue = new MockD3D12CommandQueue(dev);
+
+    // SetupDirectX probes dir + L"\\amd_fidelityfx_loader_dx12.dll" (len >= MAX_PATH) via \\?\
+    TEST_CHECK_BOOL(api.SetupDirectX(queue, 1) == true);
+
+    InitParams params{};
+    params.id            = 1;
+    params.upscaleMethod = 1;
+    params.qualityLevel  = 2;
+    params.displaySizeX  = 1920;
+    params.displaySizeY  = 1080;
+    params.format        = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+    void* tex = api.InitUpscaler(&params);
+    TEST_CHECK_BOOL(tex != nullptr);
+    TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 1);
+    // OutputFormat=10 (R16G16B16A16_FLOAT) from >= MAX_PATH INI without 8.3 shrinkage
+    TEST_CHECK_BOOL(static_cast<ID3D12Resource*>(tex)->GetDesc().Format == DXGI_FORMAT_R16G16B16A16_FLOAT);
+
+    api.ReleaseUpscaleFeature(1);
+    TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 0);
+    TEST_CHECK_BOOL(api.SetupDirectX(nullptr, 1) == false);
+    TEST_CHECK_BOOL(MockD3D12Device::liveAllocators.load() == 0);
+    TEST_CHECK_BOOL(MockD3D12Device::liveLists.load() == 0);
+    TEST_CHECK_BOOL(MockD3D12Device::liveFences.load() == 0);
+    TEST_CHECK_BOOL(dev->refCount() == 1);
+    TEST_CHECK_BOOL(queue->refCount() == 1);
+
+    queue->Release();
+    dev->Release();
+    TEST_CHECK_BOOL(MockD3D12Device::liveQueues.load() == 0);
+    TEST_CHECK_BOOL(MockD3D12Device::liveDevices.load() == 0);
+
+    SetEnvironmentVariableA("PD_MOCK_FFX_VERSIONS", nullptr);
+    api.unload();
+
+    std::vector<uint8_t> logBytes;
+    TEST_CHECK_BOOL(readAllBytesW(logPath, logBytes));
+    std::string logStr(logBytes.begin(), logBytes.end());
+    TEST_CHECK_BOOL(logStr.find("mode: NON-VERBOSE") != std::string::npos);
+
+    deleteTreeW(caseRoot);
+    printf("[Case 3] PASSED (dir=%zu, loader=%zu).\n", dir.size(), dstLoader.size());
+    return true;
+}
+
 int wmain(int argc, wchar_t** argv) {
     TEST_CHECK(argc >= 3);
     const std::wstring pluginDll     = normalizeAbsPathW(argv[1]);
     const std::wstring mockLoaderDll = normalizeAbsPathW(argv[2]);
     TEST_CHECK(!pluginDll.empty() && !mockLoaderDll.empty());
-    TEST_CHECK(GetFileAttributesW(pluginDll.c_str()) != INVALID_FILE_ATTRIBUTES);
-    TEST_CHECK(GetFileAttributesW(mockLoaderDll.c_str()) != INVALID_FILE_ATTRIBUTES);
+    TEST_CHECK(GetFileAttributesW(toExtendedPathW(pluginDll).c_str()) != INVALID_FILE_ATTRIBUTES);
+    TEST_CHECK(GetFileAttributesW(toExtendedPathW(mockLoaderDll).c_str()) != INVALID_FILE_ATTRIBUTES);
 
     wchar_t tempBuf[MAX_PATH] = {};
     const DWORD tempLen = GetTempPathW(MAX_PATH, tempBuf);
@@ -338,9 +576,10 @@ int wmain(int argc, wchar_t** argv) {
 
     const bool ok1 = runNoLoaderCase(pluginDll, tempRoot);
     const bool ok2 = ok1 && runMockLoaderCase(pluginDll, mockLoaderDll, tempRoot);
+    const bool ok3 = ok2 && runBoundaryDllDirCase(pluginDll, mockLoaderDll, tempRoot);
 
     deleteTreeW(tempRoot);
-    TEST_CHECK(ok1 && ok2);
+    TEST_CHECK(ok1 && ok2 && ok3);
 
     printf("ALL PHASE 1 FALLBACK/COM TESTS PASSED.\n");
     return 0;

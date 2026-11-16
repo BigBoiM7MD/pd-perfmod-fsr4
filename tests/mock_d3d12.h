@@ -21,6 +21,7 @@ public:
     inline static std::atomic<int> liveFences{0};
 
     bool failCreateCommittedResource = false;
+    bool failUavOnSrgbFormat         = false;
     bool failCreateCommandAllocator  = false;
     bool failCreateCommandList       = false;
     bool failCreateFence             = false;
@@ -552,6 +553,12 @@ inline HRESULT STDMETHODCALLTYPE MockD3D12Device::CreateCommittedResource(
     if (!ppvResource) return E_POINTER;
     *ppvResource = nullptr;
     if (failCreateCommittedResource) return E_OUTOFMEMORY;
+    if (failUavOnSrgbFormat && pDesc &&
+        (pDesc->Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) &&
+        (pDesc->Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+         pDesc->Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)) {
+        return E_INVALIDARG;
+    }
     const D3D12_RESOURCE_DESC desc = pDesc ? *pDesc : D3D12_RESOURCE_DESC{};
     lastCreatedDesc  = desc;
     lastInitialState = InitialResourceState;

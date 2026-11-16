@@ -60,6 +60,7 @@ if(BUILD_TESTING)
     set_target_properties(test_phase1_startup PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
     )
+    add_dependencies(test_phase1_startup ${PROJECT_NAME})
 
     add_executable(test_phase1_fallback_com tests/test_phase1_fallback_com.cpp)
     target_include_directories(test_phase1_fallback_com PRIVATE include)
@@ -67,6 +68,7 @@ if(BUILD_TESTING)
     set_target_properties(test_phase1_fallback_com PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
     )
+    add_dependencies(test_phase1_fallback_com ${PROJECT_NAME} mock_ffx_loader)
 
     if(CMAKE_CROSSCOMPILING)
         find_program(WINE_EXECUTABLE wine REQUIRED)

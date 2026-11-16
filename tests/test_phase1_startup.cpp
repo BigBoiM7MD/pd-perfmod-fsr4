@@ -153,10 +153,8 @@ static bool rvaToFileOffset(const IMAGE_NT_HEADERS64* nt,
     const IMAGE_SECTION_HEADER* sections = IMAGE_FIRST_SECTION(nt);
     for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
         const uint32_t va = sections[i].VirtualAddress;
-        const uint32_t span = (sections[i].Misc.VirtualSize > sections[i].SizeOfRawData)
-                                  ? sections[i].Misc.VirtualSize
-                                  : sections[i].SizeOfRawData;
-        if (rva >= va && rva < va + span) {
+        const uint32_t rawSize = sections[i].SizeOfRawData;
+        if (rva >= va && (rva - va) < rawSize) {
             const size_t offset = static_cast<size_t>(sections[i].PointerToRawData) + (rva - va);
             if (offset < bytes.size()) {
                 outOffset = offset;
@@ -417,6 +415,100 @@ static bool testConcurrentInit(const std::wstring& srcDllPath) {
     return true;
 }
 
+static bool writeBytesW(const std::wstring& path, const std::string& content) {
+    const std::wstring ext = toExtendedPathW(path);
+    HANDLE hFile = CreateFileW(ext.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL, nullptr);
+    TEST_CHECK_VOID(hFile != INVALID_HANDLE_VALUE);
+    DWORD written = 0;
+    const BOOL ok = content.empty() ||
+        (WriteFile(hFile, content.data(), static_cast<DWORD>(content.size()), &written, nullptr) &&
+         written == content.size());
+    CloseHandle(hFile);
+    return ok != FALSE;
+}
+
+static std::wstring buildExactLenShortSegDirW(const std::wstring& baseDir, size_t targetLen) {
+    std::wstring dir = baseDir;
+    int idx = 0;
+    while (dir.size() + 10 < targetLen) {
+        wchar_t seg[16];
+        swprintf(seg, 16, L"\\d%06d", idx++);
+        dir += seg;
+    }
+    size_t rem = (targetLen > dir.size()) ? (targetLen - dir.size()) : 0;
+    if (rem == 10) {
+        dir += L"\\a123";
+        rem -= 5;
+    }
+    if (rem >= 2 && rem <= 9) {
+        dir.push_back(L'\\');
+        dir.append(rem - 1, L'x');
+    }
+    return dir;
+}
+
+using PFN_InitUpscaler = void* (__stdcall*)(void*);
+
+static bool testBoundary241AndInitOrder(const std::wstring& srcDllPath) {
+    printf("[Test D] Verifying 229..259-char dllDir INI defaults + InitUpscaler(nullptr) log order...\n");
+    wchar_t tempBuf[MAX_PATH] = {};
+    const DWORD tempLen = GetTempPathW(MAX_PATH, tempBuf);
+    TEST_CHECK_VOID(tempLen > 0 && tempLen < MAX_PATH);
+
+    std::wstring rootDir = std::wstring(tempBuf) + L"pd_p1_d_" + std::to_wstring(GetCurrentProcessId());
+    while (!rootDir.empty() && rootDir.back() == L'\\') rootDir.pop_back();
+    deleteTreeW(rootDir);
+    TEST_CHECK_VOID(rootDir.size() < 220);
+
+    const std::wstring deepDir = buildExactLenShortSegDirW(rootDir, 241);
+    TEST_CHECK_VOID(deepDir.size() >= 229 && deepDir.size() <= 259);
+    TEST_CHECK_VOID(createDirRecursiveW(deepDir));
+
+    const std::wstring dstDll  = deepDir + L"\\PDPerfPlugin.dll";
+    const std::wstring iniPath = deepDir + L"\\pd-perfmod-fsr4.ini";
+    const std::wstring logPath = deepDir + L"\\pd-perfmod-fsr4.log";
+    TEST_CHECK_VOID(dstDll.size() < MAX_PATH);
+    TEST_CHECK_VOID(iniPath.size() >= MAX_PATH);
+    TEST_CHECK_VOID(logPath.size() >= MAX_PATH);
+
+    TEST_CHECK_VOID(CopyFileW(srcDllPath.c_str(), dstDll.c_str(), FALSE) != FALSE);
+    TEST_CHECK_VOID(writeBytesW(iniPath, ""));
+
+    // 1) Empty INI in 241-char dir + InitUpscaler(nullptr) first -> logs NULL params in VERBOSE mode
+    HMODULE mod = LoadLibraryW(dstDll.c_str());
+    TEST_CHECK_VOID(mod != nullptr);
+    auto initUpscaler = reinterpret_cast<PFN_InitUpscaler>(GetProcAddress(mod, "InitUpscaler"));
+    TEST_CHECK_VOID(initUpscaler != nullptr);
+    TEST_CHECK_VOID(initUpscaler(nullptr) == nullptr);
+    TEST_CHECK_VOID(FreeLibrary(mod) != FALSE);
+
+    std::vector<uint8_t> logBytes;
+    TEST_CHECK_VOID(readAllBytesW(logPath, logBytes));
+    std::string logStr(logBytes.begin(), logBytes.end());
+    TEST_CHECK_VOID(logStr.find("mode: VERBOSE") != std::string::npos);
+    TEST_CHECK_VOID(logStr.find("InitUpscaler: NULL params") != std::string::npos);
+
+    // 2) Verbose=0 in 241-char dir -> mode: NON-VERBOSE
+    TEST_CHECK_VOID(writeBytesW(iniPath, "[Logging]\nVerbose=0\n"));
+    mod = LoadLibraryW(dstDll.c_str());
+    TEST_CHECK_VOID(mod != nullptr);
+    auto isAvail = reinterpret_cast<PFN_IsUpscaleMethodAvailable>(GetProcAddress(mod, "IsUpscaleMethodAvailable"));
+    TEST_CHECK_VOID(isAvail != nullptr);
+    TEST_CHECK_VOID(isAvail(1) == true);
+    TEST_CHECK_VOID(FreeLibrary(mod) != FALSE);
+
+    logBytes.clear();
+    TEST_CHECK_VOID(readAllBytesW(logPath, logBytes));
+    logStr.assign(logBytes.begin(), logBytes.end());
+    TEST_CHECK_VOID(logStr.find("mode: NON-VERBOSE") != std::string::npos);
+
+    deleteTreeW(rootDir);
+    printf("[Test D] PASSED (dir=%zu, ini=%zu, empty-INI VERBOSE + Verbose=0 + InitUpscaler(nullptr)).\n",
+           deepDir.size(), iniPath.size());
+    return true;
+}
+
 int wmain(int argc, wchar_t** argv) {
     TEST_CHECK(argc >= 2);
     const std::wstring dllPath = normalizeAbsPathW(argv[1]);
@@ -426,6 +518,7 @@ int wmain(int argc, wchar_t** argv) {
     TEST_CHECK(testPeImportsAndExports(dllPath));
     TEST_CHECK(testLongNonAsciiPath(dllPath));
     TEST_CHECK(testConcurrentInit(dllPath));
+    TEST_CHECK(testBoundary241AndInitOrder(dllPath));
 
     printf("ALL PHASE 1 STARTUP TESTS PASSED.\n");
     return 0;
