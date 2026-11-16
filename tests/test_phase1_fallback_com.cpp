@@ -514,7 +514,7 @@ static bool runBoundaryDllDirCase(const std::wstring& srcPluginDll,
     auto* dev   = new MockD3D12Device();
     auto* queue = new MockD3D12CommandQueue(dev);
 
-    // SetupDirectX probes dir + L"\\amd_fidelityfx_loader_dx12.dll" (len >= MAX_PATH) via \\?\
+    // SetupDirectX probes dir + L"\\amd_fidelityfx_loader_dx12.dll" (len >= MAX_PATH) via extended path
     TEST_CHECK_BOOL(api.SetupDirectX(queue, 1) == true);
 
     InitParams params{};
