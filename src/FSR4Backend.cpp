@@ -334,7 +334,12 @@ struct FSR4Backend::Impl {
         if (!impl) return;
         for (auto& [id, ctx] : impl->contexts) {
             if (ctx.ffxCtx && impl->ffxDestroyContextFn) {
-                impl->ffxDestroyContextFn(&ctx.ffxCtx, nullptr);
+                try {
+                    impl->ffxDestroyContextFn(&ctx.ffxCtx, nullptr);
+                } catch (...) {
+                    Logging::warn("FSR4Backend: ffxDestroyContext threw during cleanup (id=%d)", id);
+                }
+                ctx.ffxCtx = nullptr;
             }
             if (ctx.outputTexture) {
                 ctx.outputTexture->Release();
@@ -397,8 +402,13 @@ struct FSR4Backend::Impl {
         impl->chosenVersionName[0] = '\0';
 
         if (impl->hLoaderDll) {
-            FreeLibrary(impl->hLoaderDll);
+            HMODULE mod = impl->hLoaderDll;
             impl->hLoaderDll = nullptr;
+            try {
+                FreeLibrary(mod);
+            } catch (...) {
+                Logging::warn("FSR4Backend: FreeLibrary threw during cleanup");
+            }
         }
 
         impl->available   = false;
@@ -605,6 +615,15 @@ static void recordRbSwap(ID3D12RootSignature* rootSig, ID3D12PipelineState* pso,
 }
 
 bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
+    // Guard the entire init path (including cleanupSetupState teardown).
+    // REFramework calls this from a __stdcall export during on_initialize();
+    // any C++ exception or SEH (access violation) inside the D3D12/DXGI/FFX
+    // calls must NOT escape into REFramework or the game dies. /EHa (set in
+    // CMakeLists.txt) makes catch(...) trap SEH too. On native Windows nothing
+    // here throws; under Wine/Proton a virtualized DXGI or an AV inside the
+    // AMD loader is caught and FSR4 cleanly disables instead of crashing.
+    // (Matches the try/catch already around evaluate().)
+    try {
     Impl::cleanupSetupState(m_impl);
     Logging::info("FSR4Backend::setup(graphicsAPI=%d)", graphicsAPI);
 
@@ -620,14 +639,6 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
     m_impl->graphicsAPI = graphicsAPI;
     readBackendIni();
 
-    // Guard the entire init path. REFramework calls this from a __stdcall export
-    // during on_initialize(); any C++ exception or SEH (access violation) inside
-    // the D3D12/DXGI/FFX calls must NOT escape into REFramework or the game dies.
-    // /EHa (set in CMakeLists.txt) makes catch(...) trap SEH too. On native
-    // Windows nothing here throws; under Wine/Proton a virtualized DXGI or an
-    // AV inside the AMD loader is caught and FSR4 cleanly disables instead of
-    // crashing. (Matches the try/catch already around evaluate().)
-    try {
     ID3D12CommandQueue* queue = (ID3D12CommandQueue*)deviceOrQueue;
     if (FAILED(queue->GetDevice(IID_PPV_ARGS(&m_impl->device))) || !m_impl->device) {
         Logging::error("FSR4Backend: Failed to get D3D12 device from queue");
@@ -799,25 +810,31 @@ bool FSR4Backend::selectFsrVersion() {
         return false;
     }
 
-    std::vector<uint64_t> ids(count);
-    std::vector<const char*> names(count);
-    q.versionIds   = ids.data();
-    q.versionNames = names.data();
-    if (m_impl->ffxQueryFn(nullptr, &q.header) != 0) {
-        Logging::warn("FSR4Backend: ffxQuery(GetVersions) failed to fill versions");
+    std::vector<uint64_t> versionIds(count, 0);
+    std::vector<const char*> versionNames(count, nullptr);
+    q.versionIds   = versionIds.data();
+    q.versionNames = versionNames.data();
+    const ffxReturnCode_t rc = m_impl->ffxQueryFn(nullptr, &q.header);
+    if (rc != 0 || count == 0) {
+        Logging::warn("FSR4Backend: ffxQuery(GetVersions) failed to fill versions (rc=%u count=%llu)",
+                      rc, (unsigned long long)count);
         return false;
+    }
+
+    if (count > versionIds.size()) {
+        count = versionIds.size();
     }
 
     // Newest is at index 0 (SDK sorts newest-first). Copy the name because the
     // pointer points into loader memory that may be overwritten by later calls.
-    m_impl->chosenVersionId = ids[0];
-    strncpy_s(m_impl->chosenVersionName, names[0] ? names[0] : "?",
+    m_impl->chosenVersionId = versionIds[0];
+    strncpy_s(m_impl->chosenVersionName, versionNames[0] ? versionNames[0] : "?",
               sizeof(m_impl->chosenVersionName) - 1);
 
     if (Logging::isVerbose()) {
         for (uint64_t i = 0; i < count; i++)
             Logging::info("FSR4Backend: GPU supports FSR version %s (id=0x%016llx)",
-                          names[i] ? names[i] : "?", (unsigned long long)ids[i]);
+                          versionNames[i] ? versionNames[i] : "?", (unsigned long long)versionIds[i]);
     }
     return true;
 }
