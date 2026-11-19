@@ -53,11 +53,12 @@ static constexpr uint64_t FFX_API_BACKEND_ID_DX12                      = 0x00000
 static constexpr uint64_t FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12 = MAKE_BACKEND_SUB_ID(FFX_API_BACKEND_ID_DX12, 2);
 
 // Output format override (read from pd-perfmod-fsr4.ini [Backend] OutputFormat).
-// 0 = use REFramework's requested format verbatim (default / safe).
-// 28 = force R8G8B8A8_UNORM (RGBA), 87 = force B8G8R8A8_UNORM (BGRA),
-// 24 = force R10G10B10A2_UNORM (HDR), etc. Lets the user A/B the exact
-// output texture format without a rebuild, to pin down the red<->blue swap.
+// 0 = auto-detect (Wine SDR defaults to R8G8B8A8_UNORM; HDR keeps container;
+// Windows keeps backbuffer format). Non-zero forces a DXGI_FORMAT (e.g.
+// 28=R8G8B8A8_UNORM, 87=B8G8R8A8_UNORM, 24=R10G10B10A2_UNORM, 10=R16G16B16A16_FLOAT).
+// RBSwap mode ([Backend] RBSwap): -1 = auto (Wine SDR), 0 = force off, 1 = force on.
 static int s_outputFormatOverride = 0; // 0 => no override
+static int s_rbSwapMode           = -1; // -1 => auto, 0 => off, 1 => on
 
 static void readBackendIni() {
     const std::wstring queryPath = Logging::getIniApiPath();
@@ -72,6 +73,21 @@ static void readBackendIni() {
     }
     s_outputFormatOverride = _wtoi(buf);
     Logging::info("FSR4Backend: ini Backend.OutputFormat=%d (0=auto-detect)", s_outputFormatOverride);
+
+    wchar_t rbBuf[32] = L"-1";
+    if (queryPath.size() < MAX_PATH) {
+        const DWORD copied = GetPrivateProfileStringW(L"Backend", L"RBSwap", L"-1", rbBuf, 32, queryPath.c_str());
+        if (copied == 0) {
+            wcscpy_s(rbBuf, L"-1");
+        }
+    } else {
+        Logging::readIniFallback(L"Backend", L"RBSwap", L"-1", rbBuf, 32);
+    }
+    const int parsedRb = _wtoi(rbBuf);
+    if (parsedRb < 0)      s_rbSwapMode = -1;
+    else if (parsedRb == 0) s_rbSwapMode = 0;
+    else                   s_rbSwapMode = 1;
+    Logging::info("FSR4Backend: ini Backend.RBSwap=%d (-1=auto, 0=off, 1=on)", s_rbSwapMode);
 }
 
 // True when running under Wine/Proton (Linux) rather than native Windows.
@@ -385,6 +401,7 @@ struct UpscaleContext {
     // Windows or when the swap is disabled.
     ID3D12Resource*   swapTexture    = nullptr;
     ID3D12DescriptorHeap* swapHeap   = nullptr;
+    bool              rbSwapEnabled  = false;
 
     int   renderWidth  = 0;
     int   renderHeight = 0;
@@ -462,11 +479,9 @@ struct FSR4Backend::Impl {
     std::unordered_map<int, UpscaleContext> contexts;
 
     // Red<->blue swap compute pipeline (Linux/Proton only), shared across
-    // contexts. Active when output is R8G8B8A8 (RGBA) under Wine/Proton, where
-    // the backbuffer presents as BGRA and vkd3d's raw copy won't reorder.
+    // contexts; per-context activation lives on UpscaleContext.
     ID3D12RootSignature* rbSwapRootSig = nullptr;
     ID3D12PipelineState* rbSwapPso     = nullptr;
-    bool                 rbSwapEnabled = false;
 
     static bool waitForFenceValue(Impl* impl, uint64_t targetValue) {
         if (!impl || !impl->fence || !impl->fenceEvent || targetValue == 0) {
@@ -566,7 +581,6 @@ struct FSR4Backend::Impl {
 
         safeRelease(impl->rbSwapPso);
         safeRelease(impl->rbSwapRootSig);
-        impl->rbSwapEnabled = false;
 
         safeRelease(impl->cmdList);
         impl->cmdListOpen = false;
@@ -872,15 +886,46 @@ static bool ensureRbSwapPipeline(ID3D12Device* device,
     return true;
 }
 
+static DXGI_FORMAT resolveRbSwapSrvFormat(DXGI_FORMAT fmt) {
+    switch (fmt) {
+        case DXGI_FORMAT_R8G8B8A8_TYPELESS:     return DXGI_FORMAT_R8G8B8A8_UNORM;
+        case DXGI_FORMAT_B8G8R8A8_TYPELESS:     return DXGI_FORMAT_B8G8R8A8_UNORM;
+        case DXGI_FORMAT_R10G10B10A2_TYPELESS:  return DXGI_FORMAT_R10G10B10A2_UNORM;
+        case DXGI_FORMAT_R16G16B16A16_TYPELESS: return DXGI_FORMAT_R16G16B16A16_FLOAT;
+        default:                                return fmt;
+    }
+}
+
+static DXGI_FORMAT resolveRbSwapUavFormat(DXGI_FORMAT outFmt) {
+    switch (outFmt) {
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+            return DXGI_FORMAT_R16G16B16A16_FLOAT;
+        case DXGI_FORMAT_R10G10B10A2_UNORM:
+        case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+            return DXGI_FORMAT_R10G10B10A2_UNORM;
+        default:
+            return DXGI_FORMAT_R8G8B8A8_UNORM;
+    }
+}
+
 static bool createRbSwapResources(ID3D12Device* device, UpscaleContext& ctx,
                                   UINT width, UINT height) {
+    if (!device || !ctx.outputTexture || width == 0 || height == 0) {
+        return false;
+    }
+
+    const DXGI_FORMAT outTexFmt = ctx.outputTexture->GetDesc().Format;
+    const DXGI_FORMAT srvFmt    = resolveRbSwapSrvFormat(outTexFmt);
+    const DXGI_FORMAT swapFmt   = resolveRbSwapUavFormat(outTexFmt);
+
     D3D12_RESOURCE_DESC desc = {};
     desc.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     desc.Width            = width;
     desc.Height           = height;
     desc.DepthOrArraySize = 1;
     desc.MipLevels        = 1;
-    desc.Format           = DXGI_FORMAT_R8G8B8A8_UNORM; // RGBA storage; shader writes (b,g,r,a)
+    desc.Format           = swapFmt;
     desc.SampleDesc.Count = 1;
     desc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     desc.Flags            = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -891,8 +936,9 @@ static bool createRbSwapResources(ID3D12Device* device, UpscaleContext& ctx,
     HRESULT hr = device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
         &desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
         IID_PPV_ARGS(&ctx.swapTexture));
-    if (FAILED(hr)) {
-        Logging::error("FSR4Backend: rb-swap texture create hr=%08x", hr);
+    if (FAILED(hr) || !ctx.swapTexture) {
+        Logging::error("FSR4Backend: rb-swap texture create hr=%08x (fmt=%d)", hr, (int)swapFmt);
+        ctx.swapTexture = nullptr;
         return false;
     }
 
@@ -901,8 +947,9 @@ static bool createRbSwapResources(ID3D12Device* device, UpscaleContext& ctx,
     heapDesc.NumDescriptors = 2;
     heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     hr = device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&ctx.swapHeap));
-    if (FAILED(hr)) {
+    if (FAILED(hr) || !ctx.swapHeap) {
         Logging::error("FSR4Backend: rb-swap heap create hr=%08x", hr);
+        ctx.swapHeap = nullptr;
         ctx.swapTexture->Release();
         ctx.swapTexture = nullptr;
         return false;
@@ -913,14 +960,14 @@ static bool createRbSwapResources(ID3D12Device* device, UpscaleContext& ctx,
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srv.Format                  = srvFmt;
     srv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Texture2D.MipLevels     = 1;
     device->CreateShaderResourceView(ctx.outputTexture, &srv, cpu);
 
     cpu.ptr += inc;
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-    uav.Format        = DXGI_FORMAT_R8G8B8A8_UNORM;
+    uav.Format        = swapFmt;
     uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
     device->CreateUnorderedAccessView(ctx.swapTexture, nullptr, &uav, cpu);
 
@@ -949,10 +996,17 @@ static void recordRbSwap(ID3D12RootSignature* rootSig, ID3D12PipelineState* pso,
     UINT gy = (UINT)((ctx.displaySizeY + 7) / 8);
     cmdList->Dispatch(gx, gy, 1);
 
-    D3D12_RESOURCE_BARRIER toUav = toSrv;
-    toUav.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-    toUav.Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    cmdList->ResourceBarrier(1, &toUav);
+    D3D12_RESOURCE_BARRIER postBarriers[2] = {};
+    postBarriers[0].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    postBarriers[0].Transition.pResource   = ctx.outputTexture;
+    postBarriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    postBarriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    postBarriers[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+
+    postBarriers[1].Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    postBarriers[1].UAV.pResource = ctx.swapTexture;
+
+    cmdList->ResourceBarrier(2, postBarriers);
 }
 
 bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
@@ -1495,26 +1549,13 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
         texDesc.DepthOrArraySize   = 1;
         texDesc.MipLevels          = 1;
         // Output texture format.
-        //   * Native Windows: the backbuffer format REFramework passes (e.g. 24,
-        //     R10G10B10A2_UNORM) works and matches the swap chain. Forcing another
-        //     format here CRASHES on Windows, so we use the backbuffer value as-is.
-        //   * Linux/Proton (vkd3d-proton): the swapchain PRESENTS as B8G8R8A8 (87/
-        //     BGRA) even though backbuffer->GetDesc() reports R8G8B8A8 (28/RGBA) - a
-        //     dxgi/vkd3d quirk (vkd3d canonicalizes the present image to RGBA8
-        //     internally and applies a (B,G,R,A) present swizzle). REFramework then
-        //     raw-copies our output (vkCmdCopyImage2, no reorder) into that backbuffer.
-        //     Empirically (in-game, pre-fix): 28 produced ALL channels scrambled
-        //     (not a clean R/B swap) because it's the wrong present format; 87
-        //     produced ONLY a clean R/B swap (correct format, wrong byte order) and
-        //     is PERFECT once the swap pass reorders FSR's RGBA bytes to BGRA.
-        //     So the SDR auto-default is 87 (BGRA) + swap pass.
-        //   * HDR: if the backbuffer is HDR-capable (R10G10B10A2=24 or
-        //     R16G16B16A16_FLOAT=10) we keep that container and skip the swap (it
-        //     goes through vkd3d's converting copy path, not the raw 8-bit path, so
-        //     no R/B flip is needed - matches the in-game result that 10=clean
-        //     colors). REFramework still hardcodes isContentHDR=false so FSR itself
-        //     runs SDR; this only preserves the HDR container end-to-end.
-        //     The INI [Backend] OutputFormat (if non-zero) always overrides this.
+        //   * Native Windows: use REFramework's requested backbuffer format as-is.
+        //   * Linux/Proton SDR: default to DXGI_FORMAT_R8G8B8A8_UNORM (28), which
+        //     maps cleanly to FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM (10), supports
+        //     UAV allocation everywhere, and matches the SRV format used by rb_swap.
+        //   * Linux/Proton HDR: preserve R10G10B10A2_UNORM / R16G16B16A16_FLOAT.
+        //   * [Backend] OutputFormat (if non-zero) overrides the output format,
+        //     with automatic retry to R8G8B8A8_UNORM if UAV creation fails.
         uint32_t outFmt;
         const char* how;
         if (isRunningUnderWine()) {
@@ -1522,11 +1563,11 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
                 (format == (uint32_t)DXGI_FORMAT_R10G10B10A2_UNORM) ||
                 (format == (uint32_t)DXGI_FORMAT_R16G16B16A16_FLOAT);
             if (backbufferHDR) {
-                outFmt = (uint32_t)format;            // keep HDR container, no swap
-                how = " (auto: Wine/Proton HDR, no swap)";
+                outFmt = (uint32_t)format;            // keep HDR container
+                how = " (auto: Wine/Proton HDR)";
             } else {
-                outFmt = (uint32_t)DXGI_FORMAT_B8G8R8A8_UNORM; // 87 BGRA present + swap
-                how = " (auto: Wine/Proton BGRA)";
+                outFmt = static_cast<uint32_t>(DXGI_FORMAT_R8G8B8A8_UNORM);
+                how = " (auto: Wine/Proton SDR R8G8B8A8_UNORM)";
             }
         } else {
             outFmt = (uint32_t)format;                // Windows - backbuffer fmt
@@ -1550,37 +1591,55 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
         ID3D12Resource* outputTexture = nullptr;
         HRESULT hr = m_impl->device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
             &texDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&outputTexture));
-        if (FAILED(hr)) {
+        if ((FAILED(hr) || !outputTexture) && texDesc.Format != DXGI_FORMAT_R8G8B8A8_UNORM) {
+            Logging::warn("FSR4Backend: output texture format=%d failed hr=%08x, retrying R8G8B8A8_UNORM",
+                          (int)texDesc.Format, hr);
+            if (outputTexture) {
+                outputTexture->Release();
+                outputTexture = nullptr;
+            }
+            texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            outFmt = static_cast<uint32_t>(DXGI_FORMAT_R8G8B8A8_UNORM);
+            hr = m_impl->device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                &texDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&outputTexture));
+        }
+        if (FAILED(hr) || !outputTexture) {
             Logging::error("FSR4Backend: Failed to create output texture hr=%08x", hr);
             Impl::destroyContextResources(m_impl, ctx);
             return nullptr;
         }
 
         ctx.outputTexture = outputTexture;
-        ctx.format        = (int)outFmt; // store the ACTUAL created format, not just requested
+        ctx.format        = static_cast<int>(texDesc.Format);
+        ctx.rbSwapEnabled = false;
 
-        // Linux/Proton red<->blue correction. The Proton backbuffer is ALWAYS
-        // B8G8R8A8 (87) at present time even though backbuffer->GetDesc() reports
-        // R8G8B8A8 (28): vkd3d canonicalizes the present image to VK_FORMAT_R8G8B8A8
-        // internally (RGBA8 is STORAGE_IMAGE-safe; BGRA8 is not) and applies a
-        // (B,G,R,A) swizzle at present (vkd3d_src/command.c:11017 CopyResource
-        // byte-depth guard + present swizzle). FSR always writes RGBA-order bytes,
-        // so for any 32bpp 4-channel UNORM output (28 or 87) we must hand back
-        // BGRA-ordered bytes. HDR formats (24=R10G10B10A2, 10=R16G16B16A16_FLOAT)
-        // take the converting copy path (not raw 8-bit) and need no swap, so the
-        // gate below intentionally skips them. Native Windows backbuffer is
-        // whatever REFramework passed (already correct) -> skip.
+        // Linux/Proton red<->blue correction, gated by [Backend] RBSwap (-1 auto,
+        // 0 force off, 1 force on) and stored per UpscaleContext.
+        bool wantRbSwap = false;
+        if (s_rbSwapMode == 0) {
+            wantRbSwap = false;
+        } else if (s_rbSwapMode == 1) {
+            wantRbSwap = true;
+        } else {
+            wantRbSwap = isRunningUnderWine() &&
+                (texDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+                 texDesc.Format == DXGI_FORMAT_B8G8R8A8_UNORM ||
+                 texDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+                 texDesc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+        }
+
         void* returnTexture = outputTexture;
-        if (isRunningUnderWine() &&
-            (outFmt == (uint32_t)DXGI_FORMAT_R8G8B8A8_UNORM ||
-             outFmt == (uint32_t)DXGI_FORMAT_B8G8R8A8_UNORM)) {
+        if (wantRbSwap) {
             if (ensureRbSwapPipeline(m_impl->device, &m_impl->rbSwapRootSig, &m_impl->rbSwapPso) &&
-                createRbSwapResources(m_impl->device, ctx, (UINT)displaySizeX, (UINT)displaySizeY)) {
-                m_impl->rbSwapEnabled = true;
+                createRbSwapResources(m_impl->device, ctx,
+                                      static_cast<UINT>(displaySizeX),
+                                      static_cast<UINT>(displaySizeY))) {
+                ctx.rbSwapEnabled = true;
                 returnTexture = ctx.swapTexture;
-                Logging::info("FSR4Backend: R/B swap pass ENABLED (RGBA output -> BGRA-ordered swap texture)");
+                Logging::info("FSR4Backend: R/B swap pass ENABLED (id=%d outFmt=%d -> swapFmt=%d mode=%d)",
+                              id, ctx.format, (int)resolveRbSwapUavFormat(texDesc.Format), s_rbSwapMode);
             } else {
-                Logging::warn("FSR4Backend: R/B swap setup FAILED; returning raw RGBA output (colors may swap)");
+                Logging::warn("FSR4Backend: R/B swap setup FAILED (id=%d); returning raw output (colors may swap)", id);
             }
         }
 
@@ -1814,12 +1873,12 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         // copy. So we run our compute pass now, on the SAME command list, to
         // write an R/B-swapped (BGRA-ordered) copy into ctx.swapTexture. Only
         // active when the swap pass was set up in createContext.
-        if (m_impl->rbSwapEnabled && ctx.swapTexture && ctx.swapHeap &&
+        if (ctx.rbSwapEnabled && ctx.swapTexture && ctx.swapHeap &&
             m_impl->rbSwapPso && m_impl->rbSwapRootSig && effectiveCmdList &&
             effectiveDst == ctx.outputTexture) {
             recordRbSwap(m_impl->rbSwapRootSig, m_impl->rbSwapPso, ctx,
                          (ID3D12GraphicsCommandList*)effectiveCmdList);
-        } else if (m_impl->rbSwapEnabled && effectiveDst != ctx.outputTexture) {
+        } else if (ctx.rbSwapEnabled && effectiveDst != ctx.outputTexture) {
             // REFramework handed us a destination texture, so FSR4 did NOT write
             // into ctx.outputTexture; the swap source would be wrong. Swap is
             // skipped and colors WILL stay swapped. Log once so a test that shows
