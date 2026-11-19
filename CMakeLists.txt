@@ -70,6 +70,14 @@ if(BUILD_TESTING)
     )
     add_dependencies(test_phase1_fallback_com ${PROJECT_NAME} mock_ffx_loader)
 
+    add_executable(test_phase2_abi_lifecycle tests/test_phase2_abi_lifecycle.cpp)
+    target_include_directories(test_phase2_abi_lifecycle PRIVATE include tests)
+    target_compile_options(test_phase2_abi_lifecycle PRIVATE /EHsc)
+    set_target_properties(test_phase2_abi_lifecycle PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+    add_dependencies(test_phase2_abi_lifecycle ${PROJECT_NAME} mock_ffx_loader)
+
     if(CMAKE_CROSSCOMPILING)
         find_program(WINE_EXECUTABLE wine REQUIRED)
         add_test(NAME phase1_startup
@@ -83,12 +91,23 @@ if(BUILD_TESTING)
                 "$<TARGET_FILE:${PROJECT_NAME}>"
                 "$<TARGET_FILE:mock_ffx_loader>"
         )
+        add_test(NAME phase2_abi_lifecycle
+            COMMAND "${CMAKE_COMMAND}" -E env WINEDEBUG=-all "${WINE_EXECUTABLE}"
+                "$<TARGET_FILE:test_phase2_abi_lifecycle>"
+                "$<TARGET_FILE:${PROJECT_NAME}>"
+                "$<TARGET_FILE:mock_ffx_loader>"
+        )
     else()
         add_test(NAME phase1_startup
             COMMAND test_phase1_startup "$<TARGET_FILE:${PROJECT_NAME}>"
         )
         add_test(NAME phase1_fallback_com
             COMMAND test_phase1_fallback_com
+                "$<TARGET_FILE:${PROJECT_NAME}>"
+                "$<TARGET_FILE:mock_ffx_loader>"
+        )
+        add_test(NAME phase2_abi_lifecycle
+            COMMAND test_phase2_abi_lifecycle
                 "$<TARGET_FILE:${PROJECT_NAME}>"
                 "$<TARGET_FILE:mock_ffx_loader>"
         )
