@@ -1231,7 +1231,15 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
 bool FSR4Backend::selectFsrVersion() {
     if (!m_impl) return false;
     SrwExclusiveGuard lockGuard(&m_impl->lock);
-    return Impl::selectFsrVersionLocked(m_impl);
+    try {
+        return Impl::selectFsrVersionLocked(m_impl);
+    } catch (const std::exception& e) {
+        Logging::error("FSR4Backend: selectFsrVersion() threw: %s", e.what());
+        return false;
+    } catch (...) {
+        Logging::error("FSR4Backend: selectFsrVersion() threw an unknown exception (SEH/AV?)");
+        return false;
+    }
 }
 
 // Decode FFX version encoding: FFX_MAKE_VERSION(major,minor,patch) =
