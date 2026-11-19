@@ -443,7 +443,11 @@ struct FSR4Backend::Impl {
     uint64_t chosenVersionId   = 0;
     char     chosenVersionName[64] = { 0 };
 
-    ID3D12CommandAllocator*    cmdAlloc = nullptr;
+    static constexpr size_t kNumCmdSlots = 3;
+    ID3D12CommandAllocator*    cmdAllocs[kNumCmdSlots] = { nullptr, nullptr, nullptr };
+    uint64_t                   slotFenceValues[kNumCmdSlots] = { 0, 0, 0 };
+    size_t                     currentSlot = 0;
+    bool                       cmdListOpen = false;
     ID3D12GraphicsCommandList* cmdList  = nullptr;
     ID3D12Fence*               fence      = nullptr;
     HANDLE                     fenceEvent = nullptr;
@@ -457,6 +461,37 @@ struct FSR4Backend::Impl {
     ID3D12RootSignature* rbSwapRootSig = nullptr;
     ID3D12PipelineState* rbSwapPso     = nullptr;
     bool                 rbSwapEnabled = false;
+
+    static bool waitForFenceValue(Impl* impl, uint64_t targetValue) {
+        if (!impl || !impl->fence || !impl->fenceEvent || targetValue == 0) {
+            return true;
+        }
+        if (impl->fence->GetCompletedValue() >= targetValue) {
+            return true;
+        }
+        ResetEvent(impl->fenceEvent);
+        const HRESULT hr = impl->fence->SetEventOnCompletion(targetValue, impl->fenceEvent);
+        if (FAILED(hr)) {
+            Logging::error("FSR4Backend: SetEventOnCompletion(%llu) failed hr=%08x",
+                           (unsigned long long)targetValue, hr);
+            return false;
+        }
+        const DWORD wr = WaitForSingleObject(impl->fenceEvent, 5000);
+        if (wr != WAIT_OBJECT_0) {
+            const HRESULT removedReason = impl->device ? impl->device->GetDeviceRemovedReason() : S_OK;
+            Logging::error("FSR4Backend: WaitForSingleObject(%llu) failed wr=%lu err=%lu removed=%08x",
+                           (unsigned long long)targetValue, wr, GetLastError(), removedReason);
+            return false;
+        }
+        return true;
+    }
+
+    static bool waitForGpu(Impl* impl) {
+        if (!impl || !impl->commandQueue || !impl->fence || !impl->fenceEvent || impl->fenceValue == 0) {
+            return true;
+        }
+        return waitForFenceValue(impl, impl->fenceValue);
+    }
 
     static void cleanupSetupState(Impl* impl) {
         if (!impl) return;
@@ -498,10 +533,15 @@ struct FSR4Backend::Impl {
             impl->cmdList->Release();
             impl->cmdList = nullptr;
         }
-        if (impl->cmdAlloc) {
-            impl->cmdAlloc->Release();
-            impl->cmdAlloc = nullptr;
+        impl->cmdListOpen = false;
+        for (size_t i = 0; i < kNumCmdSlots; ++i) {
+            if (impl->cmdAllocs[i]) {
+                impl->cmdAllocs[i]->Release();
+                impl->cmdAllocs[i] = nullptr;
+            }
+            impl->slotFenceValues[i] = 0;
         }
+        impl->currentSlot = 0;
         if (impl->fence) {
             impl->fence->Release();
             impl->fence = nullptr;
@@ -979,17 +1019,23 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
 
         Logging::info("FSR4Backend: ffxApi loaded successfully");
 
-        // Create internal command allocator and list for when REFramework doesn't provide one
-        HRESULT hr = m_impl->device->CreateCommandAllocator(
-            D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_impl->cmdAlloc));
-        if (FAILED(hr) || !m_impl->cmdAlloc) {
-            Logging::error("FSR4Backend: Failed to create command allocator (hr=%08x)", hr);
-            Impl::cleanupSetupState(m_impl);
-            return false;
+        // Create 3-slot internal command allocator ring and list for when REFramework doesn't provide one
+        m_impl->currentSlot = 0;
+        m_impl->fenceValue  = 0;
+        m_impl->cmdListOpen = false;
+        for (size_t i = 0; i < Impl::kNumCmdSlots; ++i) {
+            m_impl->slotFenceValues[i] = 0;
+            HRESULT allocHr = m_impl->device->CreateCommandAllocator(
+                D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_impl->cmdAllocs[i]));
+            if (FAILED(allocHr) || !m_impl->cmdAllocs[i]) {
+                Logging::error("FSR4Backend: Failed to create command allocator[%zu] (hr=%08x)", i, allocHr);
+                Impl::cleanupSetupState(m_impl);
+                return false;
+            }
         }
 
-        hr = m_impl->device->CreateCommandList(
-            0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_impl->cmdAlloc, nullptr, IID_PPV_ARGS(&m_impl->cmdList));
+        HRESULT hr = m_impl->device->CreateCommandList(
+            0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_impl->cmdAllocs[0], nullptr, IID_PPV_ARGS(&m_impl->cmdList));
         if (FAILED(hr) || !m_impl->cmdList) {
             Logging::error("FSR4Backend: Failed to create command list (hr=%08x)", hr);
             Impl::cleanupSetupState(m_impl);
@@ -1002,6 +1048,7 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
             Impl::cleanupSetupState(m_impl);
             return false;
         }
+        m_impl->cmdListOpen = false;
 
         hr = m_impl->device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_impl->fence));
         if (FAILED(hr) || !m_impl->fence) {
@@ -1521,16 +1568,31 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             effectiveDst = ctx.outputTexture;
 
         if (!cmdList) {
-            if (!m_impl->cmdAlloc || !m_impl->cmdList) return;
+            ID3D12CommandAllocator* slotAlloc = m_impl->cmdAllocs[m_impl->currentSlot];
+            if (!slotAlloc || !m_impl->cmdList) return;
 
-            if (m_impl->fence && m_impl->fenceValue > 0 &&
-                m_impl->fence->GetCompletedValue() < m_impl->fenceValue) {
-                m_impl->fence->SetEventOnCompletion(m_impl->fenceValue, m_impl->fenceEvent);
-                WaitForSingleObject(m_impl->fenceEvent, INFINITE);
+            if (!m_impl->cmdListOpen) {
+                const uint64_t waitVal = m_impl->slotFenceValues[m_impl->currentSlot];
+                if (!Impl::waitForFenceValue(m_impl, waitVal)) {
+                    Logging::error("FSR4Backend::evaluate(id=%d): waitForFenceValue(%llu) failed on slot %zu",
+                                   id, (unsigned long long)waitVal, m_impl->currentSlot);
+                    return;
+                }
+
+                const HRESULT allocResetHr = slotAlloc->Reset();
+                if (FAILED(allocResetHr)) {
+                    Logging::error("FSR4Backend::evaluate(id=%d): cmdAllocs[%zu]->Reset() failed hr=%08x",
+                                   id, m_impl->currentSlot, allocResetHr);
+                    return;
+                }
+                const HRESULT listResetHr = m_impl->cmdList->Reset(slotAlloc, nullptr);
+                if (FAILED(listResetHr)) {
+                    Logging::error("FSR4Backend::evaluate(id=%d): cmdList->Reset() failed hr=%08x",
+                                   id, listResetHr);
+                    return;
+                }
+                m_impl->cmdListOpen = true;
             }
-
-            if (FAILED(m_impl->cmdAlloc->Reset())) return;
-            if (FAILED(m_impl->cmdList->Reset(m_impl->cmdAlloc, nullptr))) return;
             effectiveCmdList = m_impl->cmdList;
         }
 
@@ -1670,20 +1732,32 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
 
         if (!cmdList && effectiveCmdList && m_impl->commandQueue) {
             ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
-            cl->Close();
+            const HRESULT closeHr = cl->Close();
+            m_impl->cmdListOpen = false;
+            if (FAILED(closeHr)) {
+                Logging::error("FSR4Backend: cmdList->Close() failed hr=%08x", closeHr);
+                return;
+            }
 
             ID3D12CommandList* lists[] = { cl };
             m_impl->commandQueue->ExecuteCommandLists(1, lists);
-            // Signal the fence so the allocator isn't reset while this work is still
-            // in flight (needed for allocator lifetime), but DO NOT block on it.
-            // The old code did WaitForSingleObject(..., INFINITE) here every frame,
-            // which forced a full CPU->GPU sync and serialized the pipeline — the
-            // cause of the FSR4 perf regression (GPU left ~23% idle, CPU-bound).
-            // REFramework copies our output on the SAME command queue (copier.copy
-            // -> backbuffer), so in-order queue execution already guarantees the
-            // upscale finishes before the copy reads it. Forward progress is bounded
-            // by the pre-reset check at 585 via the next frame's WaitForSingleObject.
-            m_impl->commandQueue->Signal(m_impl->fence, ++m_impl->fenceValue);
+            // Signal the fence so the slot allocator isn't reset while this work is still
+            // in flight (needed for allocator lifetime), rotating across the 3-slot ring
+            // instead of blocking every frame. REFramework copies our output on the SAME
+            // command queue (copier.copy -> backbuffer), so in-order queue execution
+            // already guarantees the upscale finishes before the copy reads it.
+            if (m_impl->fence) {
+                const uint64_t nextFence = m_impl->fenceValue + 1;
+                const HRESULT sigHr = m_impl->commandQueue->Signal(m_impl->fence, nextFence);
+                if (SUCCEEDED(sigHr)) {
+                    m_impl->fenceValue = nextFence;
+                    m_impl->slotFenceValues[m_impl->currentSlot] = nextFence;
+                } else {
+                    Logging::error("FSR4Backend: commandQueue->Signal(%llu) failed hr=%08x",
+                                   (unsigned long long)nextFence, sigHr);
+                }
+            }
+            m_impl->currentSlot = (m_impl->currentSlot + 1) % Impl::kNumCmdSlots;
         }
 
         // --- True per-call CPU timing (FSR4_DIAGNOSTICS only; scoped entry->here) --
