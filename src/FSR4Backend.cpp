@@ -6,9 +6,11 @@
 #include <dxgi1_6.h>
 #include <unordered_map>
 #include <atomic>
+#include <cerrno>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <cwchar>
 #include <exception>
 #include <map>
 #include <string>
@@ -83,10 +85,26 @@ static void readBackendIni() {
     } else {
         Logging::readIniFallback(L"Backend", L"RBSwap", L"-1", rbBuf, 32);
     }
-    const int parsedRb = _wtoi(rbBuf);
-    if (parsedRb < 0)      s_rbSwapMode = -1;
-    else if (parsedRb == 0) s_rbSwapMode = 0;
-    else                   s_rbSwapMode = 1;
+    const wchar_t* rbStart = rbBuf;
+    while (*rbStart == L' ' || *rbStart == L'\t') {
+        ++rbStart;
+    }
+    wchar_t* rbEnd = nullptr;
+    errno = 0;
+    const long parsedRb = std::wcstol(rbStart, &rbEnd, 10);
+    while (rbEnd && (*rbEnd == L' ' || *rbEnd == L'\t')) {
+        ++rbEnd;
+    }
+    if (rbEnd == rbStart || !rbEnd || *rbEnd != L'\0' || errno == ERANGE) {
+        Logging::warn("FSR4Backend: invalid Backend.RBSwap='%ls' (expected -1, 0, or 1); using -1 (auto)", rbBuf);
+        s_rbSwapMode = -1;
+    } else if (parsedRb < 0) {
+        s_rbSwapMode = -1;
+    } else if (parsedRb == 0) {
+        s_rbSwapMode = 0;
+    } else {
+        s_rbSwapMode = 1;
+    }
     Logging::info("FSR4Backend: ini Backend.RBSwap=%d (-1=auto, 0=off, 1=on)", s_rbSwapMode);
 }
 
