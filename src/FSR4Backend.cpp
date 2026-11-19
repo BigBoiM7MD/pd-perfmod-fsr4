@@ -437,11 +437,17 @@ struct FSR4Backend::Impl {
     ID3D12CommandQueue*   commandQueue = nullptr;
     int                   graphicsAPI  = 0;
     bool                  available    = false;
-    // FSR version the GPU actually supports (best/newest). Chosen at setup()
+    struct FsrVersionCandidate {
+        uint64_t id = 0;
+        std::string name;
+    };
+
+    // FSR version the GPU actually supports (best/newest first). Chosen at setup()
     // via ffxQueryDescGetVersions so the mod runs on all GPUs (FSR4 4.1.1 if
     // the GPU can do it, else FSR3.1, etc.). 0 = not enumerated yet.
     uint64_t chosenVersionId   = 0;
     char     chosenVersionName[64] = { 0 };
+    std::vector<FsrVersionCandidate> candidateVersions;
 
     static constexpr size_t kNumCmdSlots = 3;
     ID3D12CommandAllocator*    cmdAllocs[kNumCmdSlots] = { nullptr, nullptr, nullptr };
@@ -586,6 +592,7 @@ struct FSR4Backend::Impl {
         impl->ffxGetResourceFn     = nullptr;
         impl->chosenVersionId      = 0;
         impl->chosenVersionName[0] = '\0';
+        impl->candidateVersions.clear();
 
         if (impl->hLoaderDll) {
             HMODULE mod = impl->hLoaderDll;
@@ -605,6 +612,7 @@ struct FSR4Backend::Impl {
         if (!impl) return false;
         impl->chosenVersionId = 0;
         impl->chosenVersionName[0] = '\0';
+        impl->candidateVersions.clear();
 
         if (!impl->ffxQueryFn || !impl->device) {
             Logging::warn("FSR4Backend: cannot enumerate FSR versions (no query fn / device)");
@@ -641,16 +649,24 @@ struct FSR4Backend::Impl {
             count = versionIds.size();
         }
 
-        // Newest is at index 0 (SDK sorts newest-first). Copy the name because the
-        // pointer points into loader memory that may be overwritten by later calls.
-        impl->chosenVersionId = versionIds[0];
-        strncpy_s(impl->chosenVersionName, versionNames[0] ? versionNames[0] : "?",
+        // Retain all enumerated candidates in priority order (newest-first). Copy
+        // version strings immediately since loader memory may be invalidated later.
+        impl->candidateVersions.reserve(static_cast<size_t>(count));
+        for (uint64_t i = 0; i < count; ++i) {
+            Impl::FsrVersionCandidate cand;
+            cand.id   = versionIds[i];
+            cand.name = versionNames[i] ? versionNames[i] : "?";
+            impl->candidateVersions.push_back(std::move(cand));
+        }
+
+        impl->chosenVersionId = impl->candidateVersions[0].id;
+        strncpy_s(impl->chosenVersionName, impl->candidateVersions[0].name.c_str(),
                   sizeof(impl->chosenVersionName) - 1);
 
         if (Logging::isVerbose()) {
-            for (uint64_t i = 0; i < count; i++)
+            for (const auto& cand : impl->candidateVersions)
                 Logging::info("FSR4Backend: GPU supports FSR version %s (id=0x%016llx)",
-                              versionNames[i] ? versionNames[i] : "?", (unsigned long long)versionIds[i]);
+                              cand.name.c_str(), (unsigned long long)cand.id);
         }
         return true;
     }
@@ -1281,6 +1297,10 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
             Logging::error("FSR4Backend: not available");
             return nullptr;
         }
+        if (displaySizeX <= 0 || displaySizeY <= 0) {
+            Logging::error("FSR4Backend: invalid display size %dx%d", displaySizeX, displaySizeY);
+            return nullptr;
+        }
 
         auto existing = m_impl->contexts.find(id);
         if (existing != m_impl->contexts.end()) {
@@ -1308,16 +1328,23 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
             case 0: scale = 2.0f; break;
             case 1: scale = 1.7f; break;
             case 2: scale = 1.5f; break;
-            case 3: scale = 3.0f; break;
-            default: scale = 1.5f;
+            case 3: scale = 1.0f; break; // DLAA / Native resolution
+            default: scale = 1.5f; break;
         }
-        ctx.renderWidth  = (int)(displaySizeX / scale + 0.5f);
-        ctx.renderHeight = (int)(displaySizeY / scale + 0.5f);
+        if (qualityLevel == 3) {
+            ctx.renderWidth  = displaySizeX;
+            ctx.renderHeight = displaySizeY;
+        } else {
+            ctx.renderWidth  = (int)(displaySizeX / scale + 0.5f);
+            ctx.renderHeight = (int)(displaySizeY / scale + 0.5f);
+        }
+        if (ctx.renderWidth < 1) ctx.renderWidth = 1;
+        if (ctx.renderHeight < 1) ctx.renderHeight = 1;
 
         Logging::info("FSR4Backend: render=%dx%d upscale=%dx%d scale=%.2f",
                       ctx.renderWidth, ctx.renderHeight, displaySizeX, displaySizeY, scale);
 
-        uint32_t flags = 0;
+        uint32_t flags = FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION;
         if (isContentHDR)          flags |= FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE;
         if (depthInverted)         flags |= FFX_UPSCALE_ENABLE_DEPTH_INVERTED;
         if (motionVectorsJittered) flags |= FFX_UPSCALE_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION;
@@ -1327,16 +1354,15 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
                       flags, isContentHDR, depthInverted, motionVectorsJittered,
                       enableAutoExposure, enableSharpening);
 
-        // pNext chain: upscaleDesc -> overrideVersion -> backendDesc
-        // If we enumerated a supported version, force it via ffxOverrideVersion so
-        // the context deterministically runs the version the GPU supports (the
-        // newest one). Without the override, requesting 4.1.1 on an incapable GPU
-        // fails the whole context; with it, we get FSR4 on capable HW, FSR3.1 else.
-        ffxOverrideVersion overrideDesc = {};
-        overrideDesc.header.type  = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
-        overrideDesc.header.pNext = nullptr;
-        overrideDesc.versionId    = m_impl->chosenVersionId; // 0 => no override (legacy path)
+        if (!m_impl->ffxCreateContextFn) {
+            Logging::error("FSR4Backend: missing ffxCreateContext function");
+            return nullptr;
+        }
 
+        // pNext chain: upscaleDesc -> [overrideVersion ->] backendDesc
+        // Try all enumerated candidateVersions sequentially (newest first) so
+        // if FSR4 context creation fails on a given GPU/driver/payload setup,
+        // we fall back cleanly to FSR3.1 instead of aborting upscaling.
         ffxCreateBackendDX12Desc backendDesc = {};
         backendDesc.header.type  = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
         backendDesc.header.pNext = nullptr;
@@ -1344,44 +1370,98 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
 
         ffxCreateContextDescUpscale upscaleDesc = {};
         upscaleDesc.header.type             = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
-        if (m_impl->chosenVersionId) {
-            upscaleDesc.header.pNext        = &overrideDesc.header;
-            overrideDesc.header.pNext       = &backendDesc.header;
-        } else {
-            upscaleDesc.header.pNext        = &backendDesc.header;
-        }
-        upscaleDesc.flags                  = flags;
-        upscaleDesc.maxRenderSize.width    = (uint32_t)ctx.renderWidth;
-        upscaleDesc.maxRenderSize.height   = (uint32_t)ctx.renderHeight;
-        upscaleDesc.maxUpscaleSize.width   = (uint32_t)displaySizeX;
-        upscaleDesc.maxUpscaleSize.height  = (uint32_t)displaySizeY;
-        upscaleDesc.fpMessage             = messageCallback;
+        upscaleDesc.header.pNext            = &backendDesc.header;
+        upscaleDesc.flags                   = flags;
+        upscaleDesc.maxRenderSize.width     = static_cast<uint32_t>(displaySizeX);
+        upscaleDesc.maxRenderSize.height    = static_cast<uint32_t>(displaySizeY);
+        upscaleDesc.maxUpscaleSize.width    = static_cast<uint32_t>(displaySizeX);
+        upscaleDesc.maxUpscaleSize.height   = static_cast<uint32_t>(displaySizeY);
+        upscaleDesc.fpMessage               = messageCallback;
 
-        Logging::info("FSR4Backend: Calling ffxCreateContext...");
+        Logging::info("FSR4Backend: Calling ffxCreateContext (candidates=%zu)...",
+                      m_impl->candidateVersions.size());
 
         ffxContext ffxCtx = nullptr;
-        ffxReturnCode_t ret = 0;
-        // Guard the loader call: under Wine/Proton an AV inside the AMD loader must
-        // not escape into REFramework (which calls this from InitUpscaler/SimpleInit).
-        try {
-            ret = m_impl->ffxCreateContextFn(&ffxCtx, &upscaleDesc.header, nullptr);
-        } catch (const std::exception& e) {
-            Logging::error("FSR4Backend: ffxCreateContext threw: %s", e.what());
-            return nullptr;
-        } catch (...) {
-            Logging::error("FSR4Backend: ffxCreateContext threw an unknown exception (SEH/AV?)");
-            return nullptr;
+        if (!m_impl->candidateVersions.empty()) {
+            for (size_t i = 0; i < m_impl->candidateVersions.size(); ++i) {
+                const auto& candidate = m_impl->candidateVersions[i];
+                ffxOverrideVersion overrideDesc = {};
+                overrideDesc.header.type  = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
+                overrideDesc.header.pNext = &backendDesc.header;
+                overrideDesc.versionId    = candidate.id;
+                upscaleDesc.header.pNext  = &overrideDesc.header;
+
+                ffxContext candidateCtx = nullptr;
+                ffxReturnCode_t ret = 0;
+                bool threw = false;
+                try {
+                    ret = m_impl->ffxCreateContextFn(&candidateCtx, &upscaleDesc.header, nullptr);
+                } catch (const std::exception& e) {
+                    threw = true;
+                    Logging::warn("FSR4Backend: ffxCreateContext candidate[%zu] '%s' (id=0x%016llx) threw: %s",
+                                  i, candidate.name.c_str(), (unsigned long long)candidate.id, e.what());
+                } catch (...) {
+                    threw = true;
+                    Logging::warn("FSR4Backend: ffxCreateContext candidate[%zu] '%s' (id=0x%016llx) threw unknown exception (SEH/AV?)",
+                                  i, candidate.name.c_str(), (unsigned long long)candidate.id);
+                }
+
+                if (!threw && ret == 0 && candidateCtx != nullptr) {
+                    ffxCtx = candidateCtx;
+                    m_impl->chosenVersionId = candidate.id;
+                    strncpy_s(m_impl->chosenVersionName, candidate.name.c_str(),
+                              sizeof(m_impl->chosenVersionName) - 1);
+                    if (i > 0) {
+                        Logging::always("FSR4Backend: primary FSR version failed; context initialized on fallback version %s (id=0x%016llx)",
+                                        m_impl->chosenVersionName, (unsigned long long)candidate.id);
+                    }
+                    break;
+                }
+
+                if (candidateCtx && m_impl->ffxDestroyContextFn) {
+                    try {
+                        m_impl->ffxDestroyContextFn(&candidateCtx, nullptr);
+                    } catch (...) {}
+                }
+                if (!threw) {
+                    Logging::warn("FSR4Backend: ffxCreateContext candidate[%zu] '%s' (id=0x%016llx) failed (ret=%u ctx=%p)",
+                                  i, candidate.name.c_str(), (unsigned long long)candidate.id, ret, candidateCtx);
+                }
+            }
+        } else {
+            upscaleDesc.header.pNext = &backendDesc.header;
+            ffxContext candidateCtx = nullptr;
+            ffxReturnCode_t ret = 0;
+            bool threw = false;
+            try {
+                ret = m_impl->ffxCreateContextFn(&candidateCtx, &upscaleDesc.header, nullptr);
+            } catch (const std::exception& e) {
+                threw = true;
+                Logging::error("FSR4Backend: ffxCreateContext threw: %s", e.what());
+            } catch (...) {
+                threw = true;
+                Logging::error("FSR4Backend: ffxCreateContext threw an unknown exception (SEH/AV?)");
+            }
+            if (!threw) {
+                Logging::info("FSR4Backend: ffxCreateContext returned ret=%u ctx=%p", ret, candidateCtx);
+                if (ret == 0 && candidateCtx != nullptr) {
+                    ffxCtx = candidateCtx;
+                } else if (candidateCtx && m_impl->ffxDestroyContextFn) {
+                    try {
+                        m_impl->ffxDestroyContextFn(&candidateCtx, nullptr);
+                    } catch (...) {}
+                }
+            }
         }
 
-        Logging::info("FSR4Backend: ffxCreateContext returned ret=%d ctx=%p", ret, ffxCtx);
-
-        if (ret != 0 || ffxCtx == nullptr) {
-            // ffxCreateContext fails when the loader's FSR4 shader/payload files are
-            // missing or version-mismatched -> upscaler can't run -> black screen.
+        if (ffxCtx == nullptr) {
+            // ffxCreateContext failed for every enumerated candidate version -> upscaler
+            // can't run -> PDPerfPlugin allocates the fallback texture instead.
             Logging::error("=============================================================");
-            Logging::error("FSR4Backend: ffxCreateContext failed (code=%d). The FSR4 payload", ret);
-            Logging::error("files required by amd_fidelityfx_loader_dx12.dll are missing or the");
-            Logging::error("loader version is wrong. Verify the FSR4 files match FFX version");
+            Logging::error("FSR4Backend: ffxCreateContext failed for all %zu candidate version(s). The FSR4",
+                           m_impl->candidateVersions.size());
+            Logging::error("payload files required by amd_fidelityfx_loader_dx12.dll are missing or");
+            Logging::error("the loader version is wrong. Verify the FSR4 files match FFX version");
             Logging::error("0x%x. FSR4 will NOT run (black screen).", (unsigned)FFX_UPSCALER_VERSION);
             Logging::error("=============================================================");
             return nullptr;
@@ -1678,12 +1758,19 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         // from UAV -> backbuffer (PRESENT), so it must be left in UAV state.
         dd.output         = makeResource((ID3D12Resource*)effectiveDst, FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_API_RESOURCE_USAGE_UAV);
 
+        int effectiveRenderW = (renderSizeX > 0) ? renderSizeX : ctx.renderWidth;
+        int effectiveRenderH = (renderSizeY > 0) ? renderSizeY : ctx.renderHeight;
+        if (effectiveRenderW > ctx.displaySizeX) effectiveRenderW = ctx.displaySizeX;
+        if (effectiveRenderH > ctx.displaySizeY) effectiveRenderH = ctx.displaySizeY;
+        if (effectiveRenderW < 1) effectiveRenderW = 1;
+        if (effectiveRenderH < 1) effectiveRenderH = 1;
+
         dd.jitterOffset.x          = jitterOffsetX;
         dd.jitterOffset.y          = jitterOffsetY;
         dd.motionVectorScale.x     = ctx.motionScaleX;
         dd.motionVectorScale.y     = ctx.motionScaleY;
-        dd.renderSize.width        = (uint32_t)ctx.renderWidth;
-        dd.renderSize.height       = (uint32_t)ctx.renderHeight;
+        dd.renderSize.width        = static_cast<uint32_t>(effectiveRenderW);
+        dd.renderSize.height       = static_cast<uint32_t>(effectiveRenderH);
         dd.upscaleSize.width       = (uint32_t)ctx.displaySizeX;
         dd.upscaleSize.height      = (uint32_t)ctx.displaySizeY;
         dd.enableSharpening        = ctx.enableSharpening;
