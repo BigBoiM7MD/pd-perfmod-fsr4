@@ -5,6 +5,7 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <unordered_map>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -310,11 +311,51 @@ using PFN_ffxDispatch       = ffxReturnCode_t (__cdecl*)(ffxContext*, const ffxD
 using PFN_ffxQuery          = ffxReturnCode_t (__cdecl*)(ffxContext*, ffxQueryDescHeader*);
 using PFN_ffxApiGetResourceDX12 = FfxApiResource(__cdecl*)(void*, uint32_t);
 
-// Verify struct sizes match SDK expectations (MSVC x64)
-static_assert(sizeof(FfxApiResourceDescription) == 32, "ResDesc size");
-static_assert(sizeof(FfxApiResource) == 48, "Resource size");
-static_assert(sizeof(ffxDispatchDescUpscale) == 432, "DispatchDesc size");
-static_assert(sizeof(ffxCreateContextDescUpscale) == 48, "CreateDesc size");
+// Verify struct sizes and member offsets match SDK expectations (MSVC x64)
+static_assert(sizeof(ffxApiHeader) == 16, "ffxApiHeader size");
+
+static_assert(sizeof(ffxCreateBackendDX12Desc) == 24, "ffxCreateBackendDX12Desc size");
+static_assert(offsetof(ffxCreateBackendDX12Desc, device) == 16, "ffxCreateBackendDX12Desc::device offset");
+
+static_assert(sizeof(ffxCreateContextDescUpscale) == 48, "ffxCreateContextDescUpscale size");
+static_assert(offsetof(ffxCreateContextDescUpscale, flags) == 16, "ffxCreateContextDescUpscale::flags offset");
+static_assert(offsetof(ffxCreateContextDescUpscale, maxRenderSize) == 20, "ffxCreateContextDescUpscale::maxRenderSize offset");
+static_assert(offsetof(ffxCreateContextDescUpscale, maxUpscaleSize) == 28, "ffxCreateContextDescUpscale::maxUpscaleSize offset");
+static_assert(offsetof(ffxCreateContextDescUpscale, fpMessage) == 40, "ffxCreateContextDescUpscale::fpMessage offset");
+
+static_assert(sizeof(ffxOverrideVersion) == 24, "ffxOverrideVersion size");
+static_assert(offsetof(ffxOverrideVersion, versionId) == 16, "ffxOverrideVersion::versionId offset");
+
+static_assert(sizeof(ffxQueryDescGetVersions) == 56, "ffxQueryDescGetVersions size");
+static_assert(offsetof(ffxQueryDescGetVersions, versionIds) == 40, "ffxQueryDescGetVersions::versionIds offset");
+static_assert(offsetof(ffxQueryDescGetVersions, versionNames) == 48, "ffxQueryDescGetVersions::versionNames offset");
+
+static_assert(sizeof(ffxQueryGetProviderVersion) == 32, "ffxQueryGetProviderVersion size");
+static_assert(offsetof(ffxQueryGetProviderVersion, versionId) == 16, "ffxQueryGetProviderVersion::versionId offset");
+static_assert(offsetof(ffxQueryGetProviderVersion, versionName) == 24, "ffxQueryGetProviderVersion::versionName offset");
+
+static_assert(sizeof(ffxQueryDescUpscaleGetJitterPhaseCount) == 32, "ffxQueryDescUpscaleGetJitterPhaseCount size");
+static_assert(offsetof(ffxQueryDescUpscaleGetJitterPhaseCount, pOutPhaseCount) == 24, "ffxQueryDescUpscaleGetJitterPhaseCount::pOutPhaseCount offset");
+
+static_assert(sizeof(ffxQueryDescUpscaleGetJitterOffset) == 40, "ffxQueryDescUpscaleGetJitterOffset size");
+static_assert(offsetof(ffxQueryDescUpscaleGetJitterOffset, pOutX) == 24, "ffxQueryDescUpscaleGetJitterOffset::pOutX offset");
+static_assert(offsetof(ffxQueryDescUpscaleGetJitterOffset, pOutY) == 32, "ffxQueryDescUpscaleGetJitterOffset::pOutY offset");
+
+static_assert(sizeof(FfxApiResourceDescription) == 32, "FfxApiResourceDescription size");
+static_assert(offsetof(FfxApiResourceDescription, usage) == 28, "FfxApiResourceDescription::usage offset");
+
+static_assert(sizeof(FfxApiResource) == 48, "FfxApiResource size");
+static_assert(offsetof(FfxApiResource, description) == 8, "FfxApiResource::description offset");
+static_assert(offsetof(FfxApiResource, state) == 40, "FfxApiResource::state offset");
+
+static_assert(sizeof(ffxDispatchDescUpscale) == 432, "ffxDispatchDescUpscale size");
+static_assert(offsetof(ffxDispatchDescUpscale, commandList) == 16, "ffxDispatchDescUpscale::commandList offset");
+static_assert(offsetof(ffxDispatchDescUpscale, color) == 24, "ffxDispatchDescUpscale::color offset");
+static_assert(offsetof(ffxDispatchDescUpscale, output) == 312, "ffxDispatchDescUpscale::output offset");
+static_assert(offsetof(ffxDispatchDescUpscale, renderSize) == 376, "ffxDispatchDescUpscale::renderSize offset");
+static_assert(offsetof(ffxDispatchDescUpscale, upscaleSize) == 384, "ffxDispatchDescUpscale::upscaleSize offset");
+static_assert(offsetof(ffxDispatchDescUpscale, sharpness) == 396, "ffxDispatchDescUpscale::sharpness offset");
+static_assert(offsetof(ffxDispatchDescUpscale, flags) == 428, "ffxDispatchDescUpscale::flags offset");
 
 // -----------------------------------------------------------------------
 // Per-context state
