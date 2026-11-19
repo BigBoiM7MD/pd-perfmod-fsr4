@@ -358,6 +358,62 @@ static bool runEvaluationAndVrMultipassCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(cmdList->invalidResetCount == 0);
     TEST_CHECK_BOOL(cmdList->invalidCloseCount == 0);
 
+    // 6) Null texture immediately after VR execute=false discards/closes open cmdList so next Reset() succeeds
+    UpscaleParams openEye = makeEvalParams(2, colorRes, mvRes, depthRes, nullptr, 1280, 720, false, nullptr);
+    api.EvaluateUpscaler(&openEye);
+    TEST_CHECK_BOOL(cmdList->isOpen == true);
+    TEST_CHECK_BOOL(cmdList->resetCount == 3);
+
+    UpscaleParams nullAfterOpen = makeEvalParams(2, nullptr, mvRes, depthRes, nullptr, 1280, 720, true, nullptr);
+    api.EvaluateUpscaler(&nullAfterOpen);
+    TEST_CHECK_BOOL(cmdList->isOpen == false);
+    TEST_CHECK_BOOL(cmdList->closeCount == baseCloseCount + 3);
+    TEST_CHECK_BOOL(queue->executeCount.load() == 1);
+    TEST_CHECK_BOOL(queue->signalCount.load() == 1);
+
+    const size_t allocCountBeforeRecover = cmdList->resetAllocators.size();
+    ID3D12CommandAllocator* openSlotAlloc = cmdList->resetAllocators.back();
+    api.EvaluateUpscaler(&eye1);
+    TEST_CHECK_BOOL(cmdList->isOpen == false);
+    TEST_CHECK_BOOL(cmdList->resetCount == 4);
+    TEST_CHECK_BOOL(cmdList->closeCount == baseCloseCount + 4);
+    TEST_CHECK_BOOL(cmdList->resetAllocators.size() == allocCountBeforeRecover + 1);
+    TEST_CHECK_BOOL(cmdList->resetAllocators.back() == openSlotAlloc);
+    TEST_CHECK_BOOL(queue->executeCount.load() == 2);
+    TEST_CHECK_BOOL(queue->signalCount.load() == 2);
+    TEST_CHECK_BOOL(cmdList->invalidResetCount == 0);
+    TEST_CHECK_BOOL(cmdList->invalidCloseCount == 0);
+
+    // 7) cmdList->failClose = true skips ExecuteCommandLists/Signal/slot rotation and clears cmdListOpen
+    const int preFailResetCount  = cmdList->resetCount;
+    const int preFailCloseCount  = cmdList->closeCount;
+    const int preFailExecCount   = queue->executeCount.load();
+    const int preFailSignalCount = queue->signalCount.load();
+
+    cmdList->failClose = true;
+    api.EvaluateUpscaler(&eye1);
+    cmdList->failClose = false;
+
+    TEST_CHECK_BOOL(cmdList->resetCount == preFailResetCount + 1);
+    TEST_CHECK_BOOL(cmdList->closeCount == preFailCloseCount);
+    TEST_CHECK_BOOL(queue->executeCount.load() == preFailExecCount);
+    TEST_CHECK_BOOL(queue->signalCount.load() == preFailSignalCount);
+
+    // Mock Close() returned E_FAIL without flipping mock isOpen; normalize mock state so the next
+    // frame proves FSR4Backend cleared m_impl->cmdListOpen = false and preserved currentSlot.
+    ID3D12CommandAllocator* failedAlloc = cmdList->resetAllocators.back();
+    cmdList->isOpen = false;
+
+    api.EvaluateUpscaler(&eye1);
+    TEST_CHECK_BOOL(cmdList->isOpen == false);
+    TEST_CHECK_BOOL(cmdList->resetCount == preFailResetCount + 2);
+    TEST_CHECK_BOOL(cmdList->closeCount == preFailCloseCount + 1);
+    TEST_CHECK_BOOL(cmdList->resetAllocators.back() == failedAlloc);
+    TEST_CHECK_BOOL(queue->executeCount.load() == preFailExecCount + 1);
+    TEST_CHECK_BOOL(queue->signalCount.load() == preFailSignalCount + 1);
+    TEST_CHECK_BOOL(cmdList->invalidResetCount == 0);
+    TEST_CHECK_BOOL(cmdList->invalidCloseCount == 0);
+
     api.ReleaseUpscaleFeature(2);
     colorRes->Release();
     depthRes->Release();
