@@ -359,28 +359,33 @@ static bool runEvaluationAndVrMultipassCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(cmdList->invalidCloseCount == 0);
 
     // 6) Null texture immediately after VR execute=false discards/closes open cmdList so next Reset() succeeds
+    const int preNullResetCount  = cmdList->resetCount;
+    const int preNullCloseCount  = cmdList->closeCount;
+    const int preNullExecCount   = queue->executeCount.load();
+    const int preNullSignalCount = queue->signalCount.load();
+
     UpscaleParams openEye = makeEvalParams(2, colorRes, mvRes, depthRes, nullptr, 1280, 720, false, nullptr);
     api.EvaluateUpscaler(&openEye);
     TEST_CHECK_BOOL(cmdList->isOpen == true);
-    TEST_CHECK_BOOL(cmdList->resetCount == 3);
+    TEST_CHECK_BOOL(cmdList->resetCount == preNullResetCount + 1);
 
     UpscaleParams nullAfterOpen = makeEvalParams(2, nullptr, mvRes, depthRes, nullptr, 1280, 720, true, nullptr);
     api.EvaluateUpscaler(&nullAfterOpen);
     TEST_CHECK_BOOL(cmdList->isOpen == false);
-    TEST_CHECK_BOOL(cmdList->closeCount == baseCloseCount + 3);
-    TEST_CHECK_BOOL(queue->executeCount.load() == 1);
-    TEST_CHECK_BOOL(queue->signalCount.load() == 1);
+    TEST_CHECK_BOOL(cmdList->closeCount == preNullCloseCount + 1);
+    TEST_CHECK_BOOL(queue->executeCount.load() == preNullExecCount);
+    TEST_CHECK_BOOL(queue->signalCount.load() == preNullSignalCount);
 
     const size_t allocCountBeforeRecover = cmdList->resetAllocators.size();
     ID3D12CommandAllocator* openSlotAlloc = cmdList->resetAllocators.back();
     api.EvaluateUpscaler(&eye1);
     TEST_CHECK_BOOL(cmdList->isOpen == false);
-    TEST_CHECK_BOOL(cmdList->resetCount == 4);
-    TEST_CHECK_BOOL(cmdList->closeCount == baseCloseCount + 4);
+    TEST_CHECK_BOOL(cmdList->resetCount == preNullResetCount + 2);
+    TEST_CHECK_BOOL(cmdList->closeCount == preNullCloseCount + 2);
     TEST_CHECK_BOOL(cmdList->resetAllocators.size() == allocCountBeforeRecover + 1);
     TEST_CHECK_BOOL(cmdList->resetAllocators.back() == openSlotAlloc);
-    TEST_CHECK_BOOL(queue->executeCount.load() == 2);
-    TEST_CHECK_BOOL(queue->signalCount.load() == 2);
+    TEST_CHECK_BOOL(queue->executeCount.load() == preNullExecCount + 1);
+    TEST_CHECK_BOOL(queue->signalCount.load() == preNullSignalCount + 1);
     TEST_CHECK_BOOL(cmdList->invalidResetCount == 0);
     TEST_CHECK_BOOL(cmdList->invalidCloseCount == 0);
 
