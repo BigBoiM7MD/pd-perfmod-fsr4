@@ -5,6 +5,7 @@
 #include <Windows.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -381,14 +382,23 @@ static bool runAbiMappingCase(const std::wstring& srcPluginDll,
 struct FenceCompletionHelper {
     MockD3D12Fence* fence = nullptr;
     UINT64 targetValue = 0;
+    int expectedWaitCount = 1;
     bool checkDestroyBeforeComplete = false;
     uint32_t baselineDestroyCount = 0;
     bool sawNotDestroyedBeforeComplete = true;
+    bool sawWaiterRegistered = false;
 };
 
 static DWORD WINAPI delayedFenceCompleteProc(LPVOID param) {
     auto* ctx = static_cast<FenceCompletionHelper*>(param);
-    Sleep(25);
+    for (int i = 0; i < 2000; ++i) {
+        if (ctx->fence->setEventCallCount.load(std::memory_order_acquire) >= ctx->expectedWaitCount) {
+            ctx->sawWaiterRegistered = true;
+            break;
+        }
+        Sleep(1);
+    }
+    Sleep(5);
     if (ctx->checkDestroyBeforeComplete) {
         MockFfxStats s{};
         if (!MockFfxInspector::getStats(s) || s.destroyCount != ctx->baselineDestroyCount) {
@@ -470,6 +480,7 @@ static bool runRingAndLifecycleCase(const std::wstring& srcPluginDll,
     FenceCompletionHelper f4Helper{};
     f4Helper.fence = fence;
     f4Helper.targetValue = 1;
+    f4Helper.expectedWaitCount = fence->setEventCallCount.load(std::memory_order_acquire) + 1;
     HANDLE hF4 = CreateThread(nullptr, 0, delayedFenceCompleteProc, &f4Helper, 0, nullptr);
     TEST_CHECK_BOOL(hF4 != nullptr);
 
@@ -479,6 +490,7 @@ static bool runRingAndLifecycleCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(WaitForSingleObject(hF4, 10000) == WAIT_OBJECT_0);
     CloseHandle(hF4);
 
+    TEST_CHECK_BOOL(f4Helper.sawWaiterRegistered);
     TEST_CHECK_BOOL(fence->setEventCallCount.load() == 1);
     TEST_CHECK_BOOL(fence->waitTargets.size() == 1 && fence->waitTargets[0] == 1);
     TEST_CHECK_BOOL(queue->executeCount.load() == 4);
@@ -494,6 +506,7 @@ static bool runRingAndLifecycleCase(const std::wstring& srcPluginDll,
     FenceCompletionHelper owHelper{};
     owHelper.fence = fence;
     owHelper.targetValue = 4;
+    owHelper.expectedWaitCount = fence->setEventCallCount.load(std::memory_order_acquire) + 1;
     owHelper.checkDestroyBeforeComplete = true;
     owHelper.baselineDestroyCount = statsBeforeOverwrite.destroyCount;
     HANDLE hOw = CreateThread(nullptr, 0, delayedFenceCompleteProc, &owHelper, 0, nullptr);
@@ -504,6 +517,7 @@ static bool runRingAndLifecycleCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(WaitForSingleObject(hOw, 10000) == WAIT_OBJECT_0);
     CloseHandle(hOw);
 
+    TEST_CHECK_BOOL(owHelper.sawWaiterRegistered);
     TEST_CHECK_BOOL(owHelper.sawNotDestroyedBeforeComplete);
     MockFfxStats statsAfterOverwrite{};
     TEST_CHECK_BOOL(MockFfxInspector::getStats(statsAfterOverwrite));
