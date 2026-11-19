@@ -493,73 +493,91 @@ struct FSR4Backend::Impl {
         return waitForFenceValue(impl, impl->fenceValue);
     }
 
+    static void closeInternalCmdListIfOpen(Impl* impl) {
+        if (impl && impl->cmdListOpen) {
+            try {
+                if (impl->cmdList) {
+                    impl->cmdList->Close();
+                }
+            } catch (...) {}
+            impl->cmdListOpen = false;
+        }
+    }
+
+    static void destroyContextResources(Impl* impl, UpscaleContext& ctx) {
+        if (ctx.ffxCtx && impl && impl->ffxDestroyContextFn) {
+            try {
+                impl->ffxDestroyContextFn(&ctx.ffxCtx, nullptr);
+            } catch (...) {
+                Logging::warn("FSR4Backend: ffxDestroyContext threw during cleanup (id=%d)", ctx.id);
+            }
+            ctx.ffxCtx = nullptr;
+        }
+        if (ctx.outputTexture) {
+            try {
+                ctx.outputTexture->Release();
+            } catch (...) {
+                Logging::warn("FSR4Backend: outputTexture->Release threw during cleanup (id=%d)", ctx.id);
+            }
+            ctx.outputTexture = nullptr;
+        }
+        if (ctx.swapTexture) {
+            try {
+                ctx.swapTexture->Release();
+            } catch (...) {
+                Logging::warn("FSR4Backend: swapTexture->Release threw during cleanup (id=%d)", ctx.id);
+            }
+            ctx.swapTexture = nullptr;
+        }
+        if (ctx.swapHeap) {
+            try {
+                ctx.swapHeap->Release();
+            } catch (...) {
+                Logging::warn("FSR4Backend: swapHeap->Release threw during cleanup (id=%d)", ctx.id);
+            }
+            ctx.swapHeap = nullptr;
+        }
+    }
+
     static void cleanupSetupState(Impl* impl) {
         if (!impl) return;
+        closeInternalCmdListIfOpen(impl);
+        waitForGpu(impl);
+
         for (auto& [id, ctx] : impl->contexts) {
-            if (ctx.ffxCtx && impl->ffxDestroyContextFn) {
-                try {
-                    impl->ffxDestroyContextFn(&ctx.ffxCtx, nullptr);
-                } catch (...) {
-                    Logging::warn("FSR4Backend: ffxDestroyContext threw during cleanup (id=%d)", id);
-                }
-                ctx.ffxCtx = nullptr;
-            }
-            if (ctx.outputTexture) {
-                ctx.outputTexture->Release();
-                ctx.outputTexture = nullptr;
-            }
-            if (ctx.swapTexture) {
-                ctx.swapTexture->Release();
-                ctx.swapTexture = nullptr;
-            }
-            if (ctx.swapHeap) {
-                ctx.swapHeap->Release();
-                ctx.swapHeap = nullptr;
-            }
+            destroyContextResources(impl, ctx);
         }
         impl->contexts.clear();
 
-        if (impl->rbSwapPso) {
-            impl->rbSwapPso->Release();
-            impl->rbSwapPso = nullptr;
-        }
-        if (impl->rbSwapRootSig) {
-            impl->rbSwapRootSig->Release();
-            impl->rbSwapRootSig = nullptr;
-        }
+        auto safeRelease = [](auto*& ptr) {
+            if (ptr) {
+                try {
+                    ptr->Release();
+                } catch (...) {}
+                ptr = nullptr;
+            }
+        };
+
+        safeRelease(impl->rbSwapPso);
+        safeRelease(impl->rbSwapRootSig);
         impl->rbSwapEnabled = false;
 
-        if (impl->cmdList) {
-            impl->cmdList->Release();
-            impl->cmdList = nullptr;
-        }
+        safeRelease(impl->cmdList);
         impl->cmdListOpen = false;
         for (size_t i = 0; i < kNumCmdSlots; ++i) {
-            if (impl->cmdAllocs[i]) {
-                impl->cmdAllocs[i]->Release();
-                impl->cmdAllocs[i] = nullptr;
-            }
+            safeRelease(impl->cmdAllocs[i]);
             impl->slotFenceValues[i] = 0;
         }
         impl->currentSlot = 0;
-        if (impl->fence) {
-            impl->fence->Release();
-            impl->fence = nullptr;
-        }
+        safeRelease(impl->fence);
         impl->fenceValue = 0;
         if (impl->fenceEvent) {
             CloseHandle(impl->fenceEvent);
             impl->fenceEvent = nullptr;
         }
 
-        if (impl->commandQueue) {
-            impl->commandQueue->Release();
-            impl->commandQueue = nullptr;
-        }
-        if (impl->device) {
-            impl->device->Release();
-            impl->device = nullptr;
-        }
+        safeRelease(impl->commandQueue);
+        safeRelease(impl->device);
 
         impl->ffxCreateContextFn   = nullptr;
         impl->ffxDestroyContextFn  = nullptr;
@@ -1253,6 +1271,8 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
                                   bool enableAutoExposure, int format) {
     if (!m_impl) return nullptr;
     SrwExclusiveGuard lockGuard(&m_impl->lock);
+    UpscaleContext ctx{};
+    bool contextInserted = false;
     try {
         Logging::info("FSR4Backend::createContext(id=%d method=%d qual=%d %dx%d fmt=%d)",
                       id, upscaleMethod, qualityLevel, displaySizeX, displaySizeY, format);
@@ -1262,7 +1282,14 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
             return nullptr;
         }
 
-        UpscaleContext ctx;
+        auto existing = m_impl->contexts.find(id);
+        if (existing != m_impl->contexts.end()) {
+            Impl::closeInternalCmdListIfOpen(m_impl);
+            Impl::waitForGpu(m_impl);
+            Impl::destroyContextResources(m_impl, existing->second);
+            m_impl->contexts.erase(existing);
+        }
+
         ctx.id                    = id;
         ctx.upscaleMethod         = upscaleMethod;
         ctx.qualityLevel          = qualityLevel;
@@ -1445,7 +1472,7 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
             &texDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&outputTexture));
         if (FAILED(hr)) {
             Logging::error("FSR4Backend: Failed to create output texture hr=%08x", hr);
-            m_impl->ffxDestroyContextFn(&ffxCtx, nullptr);
+            Impl::destroyContextResources(m_impl, ctx);
             return nullptr;
         }
 
@@ -1478,6 +1505,7 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
         }
 
         m_impl->contexts[id] = ctx;
+        contextInserted = true;
 
         // REFramework reads the returned texture as m_upscaled_textures[id-1] and
         // raw-copies it to the backbuffer. We return the swap texture (BGRA-ordered
@@ -1486,9 +1514,15 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
                       id, returnTexture, (int)(returnTexture != outputTexture));
         return returnTexture;
     } catch (const std::exception& e) {
+        if (!contextInserted) {
+            Impl::destroyContextResources(m_impl, ctx);
+        }
         Logging::error("FSR4Backend: createContext threw: %s", e.what());
         return nullptr;
     } catch (...) {
+        if (!contextInserted) {
+            Impl::destroyContextResources(m_impl, ctx);
+        }
         Logging::error("FSR4Backend: createContext threw an unknown exception (SEH/AV?)");
         return nullptr;
     }
@@ -1541,6 +1575,9 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
 
         auto it = m_impl->contexts.find(id);
         if (it == m_impl->contexts.end() || !it->second.ffxCtx || !m_impl->ffxDispatchFn) {
+            if (!cmdList) {
+                Impl::closeInternalCmdListIfOpen(m_impl);
+            }
             static long long s_last = 0;
             long long now = (long long)GetTickCount64();
             if (now - s_last > 2000) {
@@ -1563,13 +1600,28 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         auto& ctx = it->second;
 
         void* effectiveCmdList = cmdList;
-        void* effectiveDst = destination;
-        if (!destination)
-            effectiveDst = ctx.outputTexture;
+        void* effectiveDst = destination ? destination : ctx.outputTexture;
+
+        if (!color || !depth || !motionVector || !effectiveDst) {
+            if (!cmdList) {
+                Impl::closeInternalCmdListIfOpen(m_impl);
+            }
+            static long long s_lastInvalid = 0;
+            long long now = (long long)GetTickCount64();
+            if (now - s_lastInvalid > 2000) {
+                Logging::warn("FSR4Backend::evaluate(id=%d): invalid inputs (color=%p depth=%p mv=%p dst=%p)",
+                              id, color, depth, motionVector, effectiveDst);
+                s_lastInvalid = now;
+            }
+            return;
+        }
 
         if (!cmdList) {
             ID3D12CommandAllocator* slotAlloc = m_impl->cmdAllocs[m_impl->currentSlot];
-            if (!slotAlloc || !m_impl->cmdList) return;
+            if (!slotAlloc || !m_impl->cmdList) {
+                Impl::closeInternalCmdListIfOpen(m_impl);
+                return;
+            }
 
             if (!m_impl->cmdListOpen) {
                 const uint64_t waitVal = m_impl->slotFenceValues[m_impl->currentSlot];
@@ -1671,6 +1723,9 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         ffxReturnCode_t ret = m_impl->ffxDispatchFn(&ctx.ffxCtx, &dd.header);
         if (ret != 0) {
             Logging::error("FSR4Backend: ffxDispatch returned code=%d", ret);
+            if (!cmdList) {
+                Impl::closeInternalCmdListIfOpen(m_impl);
+            }
             return;
         }
 
@@ -1758,6 +1813,8 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
                 }
             }
             m_impl->currentSlot = (m_impl->currentSlot + 1) % Impl::kNumCmdSlots;
+        } else if (!cmdList) {
+            Impl::closeInternalCmdListIfOpen(m_impl);
         }
 
         // --- True per-call CPU timing (FSR4_DIAGNOSTICS only; scoped entry->here) --
@@ -1781,9 +1838,15 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
 #endif
     } catch (const std::exception& e) {
         Logging::error("FSR4Backend: ffxDispatch exception: %s", e.what());
+        if (!cmdList) {
+            Impl::closeInternalCmdListIfOpen(m_impl);
+        }
         return;
     } catch (...) {
         Logging::error("FSR4Backend: ffxDispatch CRASHED");
+        if (!cmdList) {
+            Impl::closeInternalCmdListIfOpen(m_impl);
+        }
         return;
     }
 }
@@ -1793,13 +1856,9 @@ void FSR4Backend::release(int id) {
     SrwExclusiveGuard lockGuard(&m_impl->lock);
     auto it = m_impl->contexts.find(id);
     if (it != m_impl->contexts.end()) {
-        if (it->second.ffxCtx && m_impl->ffxDestroyContextFn)
-            m_impl->ffxDestroyContextFn(&it->second.ffxCtx, nullptr);
-        if (it->second.outputTexture) {
-            it->second.outputTexture->Release();
-        }
-        if (it->second.swapTexture) it->second.swapTexture->Release();
-        if (it->second.swapHeap)    it->second.swapHeap->Release();
+        Impl::closeInternalCmdListIfOpen(m_impl);
+        Impl::waitForGpu(m_impl);
+        Impl::destroyContextResources(m_impl, it->second);
         m_impl->contexts.erase(it);
         Logging::info("FSR4Backend: Released context id=%d", id);
     }
