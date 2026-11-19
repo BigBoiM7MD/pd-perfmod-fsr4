@@ -807,8 +807,18 @@ static void messageCallback(uint32_t type, const wchar_t* message) {
 static bool ensureRbSwapPipeline(ID3D12Device* device,
                                  ID3D12RootSignature** outRootSig,
                                  ID3D12PipelineState** outPso) {
+    if (!outRootSig || !outPso) return false;
     if (*outPso && *outRootSig) return true;
     if (!device) return false;
+
+    if (*outPso) {
+        try { (*outPso)->Release(); } catch (...) {}
+        *outPso = nullptr;
+    }
+    if (*outRootSig) {
+        try { (*outRootSig)->Release(); } catch (...) {}
+        *outRootSig = nullptr;
+    }
 
     D3D12_DESCRIPTOR_RANGE ranges[2] = {};
     ranges[0].RangeType          = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -831,43 +841,67 @@ static bool ensureRbSwapPipeline(ID3D12Device* device,
     rsDesc.pParameters   = &param;
     rsDesc.Flags         = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
-    bool loadedD3d12 = false;
-    HMODULE d3d12Mod = GetModuleHandleW(L"d3d12.dll");
-    if (!d3d12Mod) {
-        d3d12Mod = LoadLibraryW(L"d3d12.dll");
-        loadedD3d12 = (d3d12Mod != nullptr);
+    struct RbSwapInitGuard {
+        bool loadedD3d12 = false;
+        HMODULE d3d12Mod = nullptr;
+        ID3DBlob* sigBlob = nullptr;
+        ID3DBlob* errBlob = nullptr;
+        ID3D12RootSignature** rootSig = nullptr;
+        bool committed = false;
+        void releaseTemp() noexcept {
+            if (errBlob) {
+                try { errBlob->Release(); } catch (...) {}
+                errBlob = nullptr;
+            }
+            if (sigBlob) {
+                try { sigBlob->Release(); } catch (...) {}
+                sigBlob = nullptr;
+            }
+            if (loadedD3d12 && d3d12Mod) {
+                try { FreeLibrary(d3d12Mod); } catch (...) {}
+                d3d12Mod = nullptr;
+                loadedD3d12 = false;
+            }
+        }
+        ~RbSwapInitGuard() {
+            if (!committed && rootSig && *rootSig) {
+                try { (*rootSig)->Release(); } catch (...) {}
+                *rootSig = nullptr;
+            }
+            releaseTemp();
+        }
+    } guard;
+    guard.rootSig = outRootSig;
+
+    guard.d3d12Mod = GetModuleHandleW(L"d3d12.dll");
+    if (!guard.d3d12Mod) {
+        guard.d3d12Mod = LoadLibraryW(L"d3d12.dll");
+        guard.loadedD3d12 = (guard.d3d12Mod != nullptr);
     }
     using PFN_D3D12SerializeRootSignature = HRESULT (WINAPI*)(
         const D3D12_ROOT_SIGNATURE_DESC*, D3D_ROOT_SIGNATURE_VERSION,
         ID3DBlob**, ID3DBlob**);
-    auto serializeRootSig = d3d12Mod
-        ? (PFN_D3D12SerializeRootSignature)GetProcAddress(d3d12Mod, "D3D12SerializeRootSignature")
+    auto serializeRootSig = guard.d3d12Mod
+        ? (PFN_D3D12SerializeRootSignature)GetProcAddress(guard.d3d12Mod, "D3D12SerializeRootSignature")
         : nullptr;
     if (!serializeRootSig) {
         Logging::error("FSR4Backend: rb-swap failed to resolve d3d12.dll!D3D12SerializeRootSignature (err=%lu)",
                        GetLastError());
-        if (loadedD3d12) FreeLibrary(d3d12Mod);
         return false;
     }
 
-    ID3DBlob* sigBlob = nullptr;
-    ID3DBlob* errBlob = nullptr;
     HRESULT hr = serializeRootSig(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-                                  &sigBlob, &errBlob);
-    if (FAILED(hr) || !sigBlob) {
+                                  &guard.sigBlob, &guard.errBlob);
+    if (FAILED(hr) || !guard.sigBlob) {
         Logging::error("FSR4Backend: rb-swap SerializeRootSignature hr=%08x", hr);
-        if (sigBlob) sigBlob->Release();
-        if (errBlob) errBlob->Release();
-        if (loadedD3d12) FreeLibrary(d3d12Mod);
         return false;
     }
-    hr = device->CreateRootSignature(0, sigBlob->GetBufferPointer(),
-             sigBlob->GetBufferSize(), IID_PPV_ARGS(outRootSig));
-    sigBlob->Release();
-    if (errBlob) errBlob->Release();
-    if (loadedD3d12) FreeLibrary(d3d12Mod);
-    if (FAILED(hr)) {
-        Logging::error("FSR4Backend: rb-swap CreateRootSignature hr=%08x", hr);
+    hr = device->CreateRootSignature(0, guard.sigBlob->GetBufferPointer(),
+             guard.sigBlob->GetBufferSize(), IID_PPV_ARGS(outRootSig));
+    guard.releaseTemp();
+    if (FAILED(hr) || !*outRootSig) {
+        Logging::error("FSR4Backend: rb-swap CreateRootSignature hr=%08x ptr=%p",
+                       hr, (void*)*outRootSig);
         return false;
     }
 
@@ -876,12 +910,16 @@ static bool ensureRbSwapPipeline(ID3D12Device* device,
     psoDesc.CS.pShaderBytecode = g_rb_swap_cs;
     psoDesc.CS.BytecodeLength  = sizeof(g_rb_swap_cs);
     hr = device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(outPso));
-    if (FAILED(hr)) {
-        Logging::error("FSR4Backend: rb-swap CreateComputePipelineState hr=%08x", hr);
-        (*outRootSig)->Release();
-        *outRootSig = nullptr;
+    if (FAILED(hr) || !*outPso) {
+        Logging::error("FSR4Backend: rb-swap CreateComputePipelineState hr=%08x ptr=%p",
+                       hr, (void*)*outPso);
+        if (*outPso) {
+            try { (*outPso)->Release(); } catch (...) {}
+            *outPso = nullptr;
+        }
         return false;
     }
+    guard.committed = true;
     Logging::info("FSR4Backend: rb-swap compute pipeline created");
     return true;
 }
