@@ -5,6 +5,7 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <unordered_map>
+#include <atomic>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -391,7 +392,40 @@ struct UpscaleContext {
     float motionScaleY = 1.0f;
 };
 
+static void decodeFFXVersion(uint32_t v, char* out, size_t outLen);
+
+namespace {
+
+struct SrwExclusiveGuard {
+    explicit SrwExclusiveGuard(SRWLOCK* lock) noexcept : m_lock(lock) {
+        if (m_lock) AcquireSRWLockExclusive(m_lock);
+    }
+    ~SrwExclusiveGuard() {
+        if (m_lock) ReleaseSRWLockExclusive(m_lock);
+    }
+    SrwExclusiveGuard(const SrwExclusiveGuard&) = delete;
+    SrwExclusiveGuard& operator=(const SrwExclusiveGuard&) = delete;
+private:
+    SRWLOCK* m_lock;
+};
+
+struct SrwSharedGuard {
+    explicit SrwSharedGuard(SRWLOCK* lock) noexcept : m_lock(lock) {
+        if (m_lock) AcquireSRWLockShared(m_lock);
+    }
+    ~SrwSharedGuard() {
+        if (m_lock) ReleaseSRWLockShared(m_lock);
+    }
+    SrwSharedGuard(const SrwSharedGuard&) = delete;
+    SrwSharedGuard& operator=(const SrwSharedGuard&) = delete;
+private:
+    SRWLOCK* m_lock;
+};
+
+} // namespace
+
 struct FSR4Backend::Impl {
+    mutable SRWLOCK lock = SRWLOCK_INIT;
     HMODULE hLoaderDll = nullptr;
     PFN_ffxCreateContext  ffxCreateContextFn  = nullptr;
     PFN_ffxDestroyContext ffxDestroyContextFn = nullptr;
@@ -508,6 +542,142 @@ struct FSR4Backend::Impl {
         impl->available   = false;
         impl->graphicsAPI = 0;
     }
+
+    static bool selectFsrVersionLocked(Impl* impl) {
+        if (!impl) return false;
+        impl->chosenVersionId = 0;
+        impl->chosenVersionName[0] = '\0';
+
+        if (!impl->ffxQueryFn || !impl->device) {
+            Logging::warn("FSR4Backend: cannot enumerate FSR versions (no query fn / device)");
+            return false;
+        }
+
+        // Pass count=0 -> SDK fills outputCount with the number of available versions.
+        uint64_t count = 0;
+        ffxQueryDescGetVersions q = {};
+        q.header.type       = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+        q.createDescType    = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+        q.device            = impl->device;
+        q.outputCount       = &count;
+        q.versionIds        = nullptr;
+        q.versionNames      = nullptr;
+
+        if (impl->ffxQueryFn(nullptr, &q.header) != 0 || count == 0) {
+            Logging::warn("FSR4Backend: ffxQuery(GetVersions) found 0 supported FSR versions");
+            return false;
+        }
+
+        std::vector<uint64_t> versionIds(count, 0);
+        std::vector<const char*> versionNames(count, nullptr);
+        q.versionIds   = versionIds.data();
+        q.versionNames = versionNames.data();
+        const ffxReturnCode_t rc = impl->ffxQueryFn(nullptr, &q.header);
+        if (rc != 0 || count == 0) {
+            Logging::warn("FSR4Backend: ffxQuery(GetVersions) failed to fill versions (rc=%u count=%llu)",
+                          rc, (unsigned long long)count);
+            return false;
+        }
+
+        if (count > versionIds.size()) {
+            count = versionIds.size();
+        }
+
+        // Newest is at index 0 (SDK sorts newest-first). Copy the name because the
+        // pointer points into loader memory that may be overwritten by later calls.
+        impl->chosenVersionId = versionIds[0];
+        strncpy_s(impl->chosenVersionName, versionNames[0] ? versionNames[0] : "?",
+                  sizeof(impl->chosenVersionName) - 1);
+
+        if (Logging::isVerbose()) {
+            for (uint64_t i = 0; i < count; i++)
+                Logging::info("FSR4Backend: GPU supports FSR version %s (id=0x%016llx)",
+                              versionNames[i] ? versionNames[i] : "?", (unsigned long long)versionIds[i]);
+        }
+        return true;
+    }
+
+    static void logSystemInfoLocked(Impl* impl) {
+        if (!impl) return;
+        char fsrVer[64] = "<unknown>";
+        char gpuName[MAX_PATH] = "<unknown GPU>";
+
+        // --- FSR version: the one this GPU actually supports (newest enumerated) ---
+        // This is the real version the mod will run as (FSR4 4.1.1 on capable HW,
+        // else FSR3.1, ...), NOT a hardcoded constant. Fall back to the decoded
+        // FFX_UPSCALER_VERSION constant only if enumeration didn't run.
+        if (impl->chosenVersionName[0])
+            strncpy_s(fsrVer, impl->chosenVersionName, sizeof(fsrVer) - 1);
+        else
+            decodeFFXVersion(FFX_UPSCALER_VERSION, fsrVer, sizeof(fsrVer));
+
+        // --- GPU: match the live device's LUID against enumerated adapters -----
+        // We deliberately do NOT use device->QueryInterface(IDXGIDevice) — that
+        // returns E_NOINTERFACE in some setups (and gives no way to be sure we
+        // picked the real GPU). Instead we enumerate adapters and pick the one
+        // whose AdapterLuid equals the device's LUID, so we never confuse the
+        // hardware GPU with the WARP/Microsoft Basic Render Driver.
+        if (impl->device) {
+            // Wine/Proton virtualizes DXGI; EnumAdapters / GetDesc / LUID matching
+            // can throw or mismatch. A failure here is cosmetic (we just lose the
+            // GPU name), so never let it abort setup() -> FSR4 must still init.
+            try {
+                struct DxgiScopeGuard {
+                    bool loadedDxgi = false;
+                    HMODULE dxgiMod = nullptr;
+                    IDXGIFactory4* factory = nullptr;
+                    IDXGIAdapter* adapter = nullptr;
+                    ~DxgiScopeGuard() {
+                        if (adapter) {
+                            try { adapter->Release(); } catch (...) {}
+                            adapter = nullptr;
+                        }
+                        if (factory) {
+                            try { factory->Release(); } catch (...) {}
+                            factory = nullptr;
+                        }
+                        if (loadedDxgi && dxgiMod) {
+                            try { FreeLibrary(dxgiMod); } catch (...) {}
+                            dxgiMod = nullptr;
+                        }
+                    }
+                } guard;
+
+                using PFN_CreateDXGIFactory1 = HRESULT (WINAPI*)(REFIID, void**);
+                guard.dxgiMod = GetModuleHandleW(L"dxgi.dll");
+                if (!guard.dxgiMod) {
+                    guard.dxgiMod = LoadLibraryW(L"dxgi.dll");
+                    guard.loadedDxgi = (guard.dxgiMod != nullptr);
+                }
+                auto createDXGIFactory1Fn = guard.dxgiMod
+                    ? (PFN_CreateDXGIFactory1)GetProcAddress(guard.dxgiMod, "CreateDXGIFactory1")
+                    : nullptr;
+
+                if (createDXGIFactory1Fn && SUCCEEDED(createDXGIFactory1Fn(IID_PPV_ARGS(&guard.factory))) && guard.factory) {
+                    LUID devLuid = impl->device->GetAdapterLuid();
+                    for (UINT i = 0; ; i++) {
+                        if (FAILED(guard.factory->EnumAdapters(i, &guard.adapter)) || !guard.adapter) break; // NOT_FOUND ends it
+                        DXGI_ADAPTER_DESC desc = {};
+                        const HRESULT descHr = guard.adapter->GetDesc(&desc);
+                        IDXGIAdapter* ad = guard.adapter;
+                        guard.adapter = nullptr;
+                        ad->Release();
+                        if (SUCCEEDED(descHr) &&
+                            desc.AdapterLuid.HighPart == devLuid.HighPart &&
+                            desc.AdapterLuid.LowPart  == devLuid.LowPart) {
+                            WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1,
+                                gpuName, MAX_PATH, nullptr, nullptr);
+                            break;
+                        }
+                    }
+                }
+            } catch (...) {
+                strncpy_s(gpuName, "<unknown GPU (DXGI probe failed)>", sizeof(gpuName) - 1);
+            }
+        }
+
+        Logging::always("FSR version: %s  |  GPU: %s", fsrVer, gpuName);
+    }
 };
 
 // -----------------------------------------------------------------------
@@ -517,7 +687,10 @@ FSR4Backend::FSR4Backend() { m_impl = new Impl(); }
 
 FSR4Backend::~FSR4Backend() {
     if (m_impl) {
-        Impl::cleanupSetupState(m_impl);
+        {
+            SrwExclusiveGuard lockGuard(&m_impl->lock);
+            Impl::cleanupSetupState(m_impl);
+        }
         delete m_impl;
         m_impl = nullptr;
     }
@@ -709,6 +882,8 @@ static void recordRbSwap(ID3D12RootSignature* rootSig, ID3D12PipelineState* pso,
 }
 
 bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
+    if (!m_impl) return false;
+    SrwExclusiveGuard lockGuard(&m_impl->lock);
     // Guard the entire init path (including cleanupSetupState teardown).
     // REFramework calls this from a __stdcall export during on_initialize();
     // any C++ exception or SEH (access violation) inside the D3D12/DXGI/FFX
@@ -718,146 +893,146 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
     // AMD loader is caught and FSR4 cleanly disables instead of crashing.
     // (Matches the try/catch already around evaluate().)
     try {
-    Impl::cleanupSetupState(m_impl);
-    Logging::info("FSR4Backend::setup(graphicsAPI=%d)", graphicsAPI);
-
-    if (graphicsAPI != 1) {
-        Logging::warn("FSR4Backend: Unsupported graphicsAPI=%d (D3D12 required)", graphicsAPI);
-        return false;
-    }
-    if (!deviceOrQueue) {
-        Logging::error("FSR4Backend: setup() called with null deviceOrQueue");
-        return false;
-    }
-
-    m_impl->graphicsAPI = graphicsAPI;
-    readBackendIni();
-
-    ID3D12CommandQueue* queue = (ID3D12CommandQueue*)deviceOrQueue;
-    if (FAILED(queue->GetDevice(IID_PPV_ARGS(&m_impl->device))) || !m_impl->device) {
-        Logging::error("FSR4Backend: Failed to get D3D12 device from queue");
         Impl::cleanupSetupState(m_impl);
-        return false;
-    }
-    Logging::info("FSR4Backend: Got D3D12 device");
-    m_impl->commandQueue = queue;
-    m_impl->commandQueue->AddRef();
+        Logging::info("FSR4Backend::setup(graphicsAPI=%d)", graphicsAPI);
 
-    const std::wstring dllDir = Logging::getDllDir();
-    const wchar_t* loaderNames[] = {
-        L"amd_fidelityfx_loader_dx12.dll",
-        L"amd_fidelityfx_loader.dll"
-    };
-    m_impl->hLoaderDll = nullptr;
-    if (!dllDir.empty()) {
-        for (const wchar_t* name : loaderNames) {
-            const std::wstring fullPath = Logging::getDllSiblingPath(name);
-            if (fullPath.empty()) {
-                continue;
-            }
-            Logging::info("FSR4Backend: Probing %ls...", fullPath.c_str());
-            m_impl->hLoaderDll = LoadLibraryExW(fullPath.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-            if (m_impl->hLoaderDll) {
-                Logging::info("FSR4Backend: Loaded %ls", fullPath.c_str());
-                break;
-            }
-            Logging::warn("FSR4Backend: Probe failed for %ls (err=%lu)", fullPath.c_str(), GetLastError());
+        if (graphicsAPI != 1) {
+            Logging::warn("FSR4Backend: Unsupported graphicsAPI=%d (D3D12 required)", graphicsAPI);
+            return false;
         }
-    }
-    if (!m_impl->hLoaderDll) {
-        for (const wchar_t* name : loaderNames) {
-            Logging::info("FSR4Backend: Loading %ls...", name);
-            m_impl->hLoaderDll = LoadLibraryW(name);
-            if (m_impl->hLoaderDll) {
-                Logging::info("FSR4Backend: Loaded %ls", name);
-                break;
-            }
-            Logging::warn("FSR4Backend: Failed to load %ls (err=%lu)", name, GetLastError());
+        if (!deviceOrQueue) {
+            Logging::error("FSR4Backend: setup() called with null deviceOrQueue");
+            return false;
         }
-    }
-    if (!m_impl->hLoaderDll) {
-        // The FFX loader + FSR4 shader/payload files ship alongside the game, NOT
-        // inside PDPerfPlugin.dll. If they're missing the upscaler can't init and
-        // REFramework presents the (un-upscaled) fallback texture -> black screen.
-        // Tell the user exactly what to drop next to the game .exe.
-        Logging::error("=============================================================");
-        Logging::error("FSR4Backend: FFX loader NOT FOUND. FSR4 will NOT run (black screen).");
-        Logging::error("Place these FSR4 files next to the GAME .exe (or in REFramework's");
-        Logging::error("upscaler folder): amd_fidelityfx_loader_dx12.dll (and the FSR4");
-        Logging::error("shader/payload files it depends on). See the mod's install notes.");
-        Logging::error("=============================================================");
-        Impl::cleanupSetupState(m_impl);
-        return false;
-    }
 
-    m_impl->ffxCreateContextFn  = (PFN_ffxCreateContext)GetProcAddress(m_impl->hLoaderDll, "ffxCreateContext");
-    m_impl->ffxDestroyContextFn = (PFN_ffxDestroyContext)GetProcAddress(m_impl->hLoaderDll, "ffxDestroyContext");
-    m_impl->ffxDispatchFn       = (PFN_ffxDispatch)GetProcAddress(m_impl->hLoaderDll, "ffxDispatch");
-    m_impl->ffxQueryFn          = (PFN_ffxQuery)GetProcAddress(m_impl->hLoaderDll, "ffxQuery");
-    m_impl->ffxGetResourceFn    = (PFN_ffxApiGetResourceDX12)GetProcAddress(m_impl->hLoaderDll, "ffxApiGetResourceDX12");
+        m_impl->graphicsAPI = graphicsAPI;
+        readBackendIni();
 
-    if (!m_impl->ffxCreateContextFn || !m_impl->ffxDestroyContextFn || !m_impl->ffxDispatchFn) {
-        Logging::warn("FSR4Backend: Missing required ffxApi entry points");
-        Impl::cleanupSetupState(m_impl);
-        return false;
-    }
+        ID3D12CommandQueue* queue = (ID3D12CommandQueue*)deviceOrQueue;
+        if (FAILED(queue->GetDevice(IID_PPV_ARGS(&m_impl->device))) || !m_impl->device) {
+            Logging::error("FSR4Backend: Failed to get D3D12 device from queue");
+            Impl::cleanupSetupState(m_impl);
+            return false;
+        }
+        Logging::info("FSR4Backend: Got D3D12 device");
+        m_impl->commandQueue = queue;
+        m_impl->commandQueue->AddRef();
 
-    Logging::info("FSR4Backend: ffxApi loaded successfully");
+        const std::wstring dllDir = Logging::getDllDir();
+        const wchar_t* loaderNames[] = {
+            L"amd_fidelityfx_loader_dx12.dll",
+            L"amd_fidelityfx_loader.dll"
+        };
+        m_impl->hLoaderDll = nullptr;
+        if (!dllDir.empty()) {
+            for (const wchar_t* name : loaderNames) {
+                const std::wstring fullPath = Logging::getDllSiblingPath(name);
+                if (fullPath.empty()) {
+                    continue;
+                }
+                Logging::info("FSR4Backend: Probing %ls...", fullPath.c_str());
+                m_impl->hLoaderDll = LoadLibraryExW(fullPath.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+                if (m_impl->hLoaderDll) {
+                    Logging::info("FSR4Backend: Loaded %ls", fullPath.c_str());
+                    break;
+                }
+                Logging::warn("FSR4Backend: Probe failed for %ls (err=%lu)", fullPath.c_str(), GetLastError());
+            }
+        }
+        if (!m_impl->hLoaderDll) {
+            for (const wchar_t* name : loaderNames) {
+                Logging::info("FSR4Backend: Loading %ls...", name);
+                m_impl->hLoaderDll = LoadLibraryW(name);
+                if (m_impl->hLoaderDll) {
+                    Logging::info("FSR4Backend: Loaded %ls", name);
+                    break;
+                }
+                Logging::warn("FSR4Backend: Failed to load %ls (err=%lu)", name, GetLastError());
+            }
+        }
+        if (!m_impl->hLoaderDll) {
+            // The FFX loader + FSR4 shader/payload files ship alongside the game, NOT
+            // inside PDPerfPlugin.dll. If they're missing the upscaler can't init and
+            // REFramework presents the (un-upscaled) fallback texture -> black screen.
+            // Tell the user exactly what to drop next to the game .exe.
+            Logging::error("=============================================================");
+            Logging::error("FSR4Backend: FFX loader NOT FOUND. FSR4 will NOT run (black screen).");
+            Logging::error("Place these FSR4 files next to the GAME .exe (or in REFramework's");
+            Logging::error("upscaler folder): amd_fidelityfx_loader_dx12.dll (and the FSR4");
+            Logging::error("shader/payload files it depends on). See the mod's install notes.");
+            Logging::error("=============================================================");
+            Impl::cleanupSetupState(m_impl);
+            return false;
+        }
 
-    // Create internal command allocator and list for when REFramework doesn't provide one
-    HRESULT hr = m_impl->device->CreateCommandAllocator(
-        D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_impl->cmdAlloc));
-    if (FAILED(hr) || !m_impl->cmdAlloc) {
-        Logging::error("FSR4Backend: Failed to create command allocator (hr=%08x)", hr);
-        Impl::cleanupSetupState(m_impl);
-        return false;
-    }
+        m_impl->ffxCreateContextFn  = (PFN_ffxCreateContext)GetProcAddress(m_impl->hLoaderDll, "ffxCreateContext");
+        m_impl->ffxDestroyContextFn = (PFN_ffxDestroyContext)GetProcAddress(m_impl->hLoaderDll, "ffxDestroyContext");
+        m_impl->ffxDispatchFn       = (PFN_ffxDispatch)GetProcAddress(m_impl->hLoaderDll, "ffxDispatch");
+        m_impl->ffxQueryFn          = (PFN_ffxQuery)GetProcAddress(m_impl->hLoaderDll, "ffxQuery");
+        m_impl->ffxGetResourceFn    = (PFN_ffxApiGetResourceDX12)GetProcAddress(m_impl->hLoaderDll, "ffxApiGetResourceDX12");
 
-    hr = m_impl->device->CreateCommandList(
-        0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_impl->cmdAlloc, nullptr, IID_PPV_ARGS(&m_impl->cmdList));
-    if (FAILED(hr) || !m_impl->cmdList) {
-        Logging::error("FSR4Backend: Failed to create command list (hr=%08x)", hr);
-        Impl::cleanupSetupState(m_impl);
-        return false;
-    }
+        if (!m_impl->ffxCreateContextFn || !m_impl->ffxDestroyContextFn || !m_impl->ffxDispatchFn) {
+            Logging::warn("FSR4Backend: Missing required ffxApi entry points");
+            Impl::cleanupSetupState(m_impl);
+            return false;
+        }
 
-    hr = m_impl->cmdList->Close(); // Reset() requires the list to be closed
-    if (FAILED(hr)) {
-        Logging::error("FSR4Backend: Failed to close initial command list (hr=%08x)", hr);
-        Impl::cleanupSetupState(m_impl);
-        return false;
-    }
+        Logging::info("FSR4Backend: ffxApi loaded successfully");
 
-    hr = m_impl->device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_impl->fence));
-    if (FAILED(hr) || !m_impl->fence) {
-        Logging::error("FSR4Backend: Failed to create fence (hr=%08x)", hr);
-        Impl::cleanupSetupState(m_impl);
-        return false;
-    }
+        // Create internal command allocator and list for when REFramework doesn't provide one
+        HRESULT hr = m_impl->device->CreateCommandAllocator(
+            D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_impl->cmdAlloc));
+        if (FAILED(hr) || !m_impl->cmdAlloc) {
+            Logging::error("FSR4Backend: Failed to create command allocator (hr=%08x)", hr);
+            Impl::cleanupSetupState(m_impl);
+            return false;
+        }
 
-    m_impl->fenceEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
-    if (!m_impl->fenceEvent) {
-        Logging::error("FSR4Backend: Failed to create fence event (err=%lu)", GetLastError());
-        Impl::cleanupSetupState(m_impl);
-        return false;
-    }
+        hr = m_impl->device->CreateCommandList(
+            0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_impl->cmdAlloc, nullptr, IID_PPV_ARGS(&m_impl->cmdList));
+        if (FAILED(hr) || !m_impl->cmdList) {
+            Logging::error("FSR4Backend: Failed to create command list (hr=%08x)", hr);
+            Impl::cleanupSetupState(m_impl);
+            return false;
+        }
 
-    // Enumerate the FSR versions this GPU actually supports and remember the
-    // newest one, so every context we create runs a version the GPU can do
-    // (FSR4 4.1.1 if it can, else FSR3.1, ...). Without this, requesting 4.1.1
-    // on an unsupported GPU makes ffxCreateContext fail -> no upscaling.
-    if (!selectFsrVersion()) {
-        Logging::error("FSR4Backend: Failed to enumerate any supported FSR version");
-        Impl::cleanupSetupState(m_impl);
-        return false;
-    }
+        hr = m_impl->cmdList->Close(); // Reset() requires the list to be closed
+        if (FAILED(hr)) {
+            Logging::error("FSR4Backend: Failed to close initial command list (hr=%08x)", hr);
+            Impl::cleanupSetupState(m_impl);
+            return false;
+        }
 
-    // FSR version + GPU: printed ONCE and in BOTH verbosity modes (gated on
-    // the preset actually loading, so we never spam before init succeeds).
-    logSystemInfo();
+        hr = m_impl->device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_impl->fence));
+        if (FAILED(hr) || !m_impl->fence) {
+            Logging::error("FSR4Backend: Failed to create fence (hr=%08x)", hr);
+            Impl::cleanupSetupState(m_impl);
+            return false;
+        }
 
-    m_impl->available = true;
-    return true;
+        m_impl->fenceEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+        if (!m_impl->fenceEvent) {
+            Logging::error("FSR4Backend: Failed to create fence event (err=%lu)", GetLastError());
+            Impl::cleanupSetupState(m_impl);
+            return false;
+        }
+
+        // Enumerate the FSR versions this GPU actually supports and remember the
+        // newest one, so every context we create runs a version the GPU can do
+        // (FSR4 4.1.1 if it can, else FSR3.1, ...). Without this, requesting 4.1.1
+        // on an unsupported GPU makes ffxCreateContext fail -> no upscaling.
+        if (!Impl::selectFsrVersionLocked(m_impl)) {
+            Logging::error("FSR4Backend: Failed to enumerate any supported FSR version");
+            Impl::cleanupSetupState(m_impl);
+            return false;
+        }
+
+        // FSR version + GPU: printed ONCE and in BOTH verbosity modes (gated on
+        // the preset actually loading, so we never spam before init succeeds).
+        Impl::logSystemInfoLocked(m_impl);
+
+        m_impl->available = true;
+        return true;
     } catch (const std::exception& e) {
         Logging::error("=============================================================");
         Logging::error("FSR4Backend: setup() threw: %s", e.what());
@@ -881,56 +1056,9 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
 // our pick. Returns false if the query fn is missing or no version is found
 // (caller then has no FSR at all).
 bool FSR4Backend::selectFsrVersion() {
-    m_impl->chosenVersionId = 0;
-    m_impl->chosenVersionName[0] = '\0';
-
-    if (!m_impl->ffxQueryFn || !m_impl->device) {
-        Logging::warn("FSR4Backend: cannot enumerate FSR versions (no query fn / device)");
-        return false;
-    }
-
-    // Pass count=0 -> SDK fills outputCount with the number of available versions.
-    uint64_t count = 0;
-    ffxQueryDescGetVersions q = {};
-    q.header.type       = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
-    q.createDescType    = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
-    q.device            = m_impl->device;
-    q.outputCount       = &count;
-    q.versionIds        = nullptr;
-    q.versionNames      = nullptr;
-
-    if (m_impl->ffxQueryFn(nullptr, &q.header) != 0 || count == 0) {
-        Logging::warn("FSR4Backend: ffxQuery(GetVersions) found 0 supported FSR versions");
-        return false;
-    }
-
-    std::vector<uint64_t> versionIds(count, 0);
-    std::vector<const char*> versionNames(count, nullptr);
-    q.versionIds   = versionIds.data();
-    q.versionNames = versionNames.data();
-    const ffxReturnCode_t rc = m_impl->ffxQueryFn(nullptr, &q.header);
-    if (rc != 0 || count == 0) {
-        Logging::warn("FSR4Backend: ffxQuery(GetVersions) failed to fill versions (rc=%u count=%llu)",
-                      rc, (unsigned long long)count);
-        return false;
-    }
-
-    if (count > versionIds.size()) {
-        count = versionIds.size();
-    }
-
-    // Newest is at index 0 (SDK sorts newest-first). Copy the name because the
-    // pointer points into loader memory that may be overwritten by later calls.
-    m_impl->chosenVersionId = versionIds[0];
-    strncpy_s(m_impl->chosenVersionName, versionNames[0] ? versionNames[0] : "?",
-              sizeof(m_impl->chosenVersionName) - 1);
-
-    if (Logging::isVerbose()) {
-        for (uint64_t i = 0; i < count; i++)
-            Logging::info("FSR4Backend: GPU supports FSR version %s (id=0x%016llx)",
-                          versionNames[i] ? versionNames[i] : "?", (unsigned long long)versionIds[i]);
-    }
-    return true;
+    if (!m_impl) return false;
+    SrwExclusiveGuard lockGuard(&m_impl->lock);
+    return Impl::selectFsrVersionLocked(m_impl);
 }
 
 // Decode FFX version encoding: FFX_MAKE_VERSION(major,minor,patch) =
@@ -946,88 +1074,22 @@ static void decodeFFXVersion(uint32_t v, char* out, size_t outLen) {
 // FSR version + GPU name, printed ONCE in BOTH verbosity modes (gated on the
 // preset actually loading, so we never spam before init succeeds).
 void FSR4Backend::logSystemInfo() {
-    char fsrVer[64] = "<unknown>";
-    char gpuName[MAX_PATH] = "<unknown GPU>";
-
-    // --- FSR version: the one this GPU actually supports (newest enumerated) ---
-    // This is the real version the mod will run as (FSR4 4.1.1 on capable HW,
-    // else FSR3.1, ...), NOT a hardcoded constant. Fall back to the decoded
-    // FFX_UPSCALER_VERSION constant only if enumeration didn't run.
-    if (m_impl->chosenVersionName[0])
-        strncpy_s(fsrVer, m_impl->chosenVersionName, sizeof(fsrVer) - 1);
-    else
-        decodeFFXVersion(FFX_UPSCALER_VERSION, fsrVer, sizeof(fsrVer));
-
-    // --- GPU: match the live device's LUID against enumerated adapters -----
-    // We deliberately do NOT use device->QueryInterface(IDXGIDevice) — that
-    // returns E_NOINTERFACE in some setups (and gives no way to be sure we
-    // picked the real GPU). Instead we enumerate adapters and pick the one
-    // whose AdapterLuid equals the device's LUID, so we never confuse the
-    // hardware GPU with the WARP/Microsoft Basic Render Driver.
-    if (m_impl->device) {
-        // Wine/Proton virtualizes DXGI; EnumAdapters / GetDesc / LUID matching
-        // can throw or mismatch. A failure here is cosmetic (we just lose the
-        // GPU name), so never let it abort setup() -> FSR4 must still init.
-        try {
-            struct DxgiScopeGuard {
-                bool loadedDxgi = false;
-                HMODULE dxgiMod = nullptr;
-                IDXGIFactory4* factory = nullptr;
-                IDXGIAdapter* adapter = nullptr;
-                ~DxgiScopeGuard() {
-                    if (adapter) {
-                        try { adapter->Release(); } catch (...) {}
-                        adapter = nullptr;
-                    }
-                    if (factory) {
-                        try { factory->Release(); } catch (...) {}
-                        factory = nullptr;
-                    }
-                    if (loadedDxgi && dxgiMod) {
-                        try { FreeLibrary(dxgiMod); } catch (...) {}
-                        dxgiMod = nullptr;
-                    }
-                }
-            } guard;
-
-            using PFN_CreateDXGIFactory1 = HRESULT (WINAPI*)(REFIID, void**);
-            guard.dxgiMod = GetModuleHandleW(L"dxgi.dll");
-            if (!guard.dxgiMod) {
-                guard.dxgiMod = LoadLibraryW(L"dxgi.dll");
-                guard.loadedDxgi = (guard.dxgiMod != nullptr);
-            }
-            auto createDXGIFactory1Fn = guard.dxgiMod
-                ? (PFN_CreateDXGIFactory1)GetProcAddress(guard.dxgiMod, "CreateDXGIFactory1")
-                : nullptr;
-
-            if (createDXGIFactory1Fn && SUCCEEDED(createDXGIFactory1Fn(IID_PPV_ARGS(&guard.factory))) && guard.factory) {
-                LUID devLuid = m_impl->device->GetAdapterLuid();
-                for (UINT i = 0; ; i++) {
-                    if (FAILED(guard.factory->EnumAdapters(i, &guard.adapter)) || !guard.adapter) break; // NOT_FOUND ends it
-                    DXGI_ADAPTER_DESC desc = {};
-                    const HRESULT descHr = guard.adapter->GetDesc(&desc);
-                    IDXGIAdapter* ad = guard.adapter;
-                    guard.adapter = nullptr;
-                    ad->Release();
-                    if (SUCCEEDED(descHr) &&
-                        desc.AdapterLuid.HighPart == devLuid.HighPart &&
-                        desc.AdapterLuid.LowPart  == devLuid.LowPart) {
-                        WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1,
-                            gpuName, MAX_PATH, nullptr, nullptr);
-                        break;
-                    }
-                }
-            }
-        } catch (...) {
-            strncpy_s(gpuName, "<unknown GPU (DXGI probe failed)>", sizeof(gpuName) - 1);
-        }
-    }
-
-    Logging::always("FSR version: %s  |  GPU: %s", fsrVer, gpuName);
+    if (!m_impl) return;
+    SrwSharedGuard lockGuard(&m_impl->lock);
+    Impl::logSystemInfoLocked(m_impl);
 }
 
-bool FSR4Backend::isAvailable() const { return m_impl->available; }
-bool FSR4Backend::isReady() const { return m_impl->available && !m_impl->contexts.empty(); }
+bool FSR4Backend::isAvailable() const {
+    if (!m_impl) return false;
+    SrwSharedGuard lockGuard(&m_impl->lock);
+    return m_impl->available;
+}
+
+bool FSR4Backend::isReady() const {
+    if (!m_impl) return false;
+    SrwSharedGuard lockGuard(&m_impl->lock);
+    return m_impl->available && !m_impl->contexts.empty();
+}
 
 static uint32_t dxgiToFfxFormat(DXGI_FORMAT fmt) {
     switch (fmt) {
@@ -1142,237 +1204,247 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
                                   bool isContentHDR, bool depthInverted, bool yAxisInverted,
                                   bool motionVectorsJittered, bool enableSharpening,
                                   bool enableAutoExposure, int format) {
-    Logging::info("FSR4Backend::createContext(id=%d method=%d qual=%d %dx%d fmt=%d)",
-                  id, upscaleMethod, qualityLevel, displaySizeX, displaySizeY, format);
-
-    if (!m_impl->available || !m_impl->device) {
-        Logging::error("FSR4Backend: not available");
-        return nullptr;
-    }
-
-    UpscaleContext ctx;
-    ctx.id                    = id;
-    ctx.upscaleMethod         = upscaleMethod;
-    ctx.qualityLevel          = qualityLevel;
-    ctx.displaySizeX          = displaySizeX;
-    ctx.displaySizeY          = displaySizeY;
-    ctx.format                = format;
-    ctx.isContentHDR          = isContentHDR;
-    ctx.depthInverted         = depthInverted;
-    ctx.motionVectorsJittered = motionVectorsJittered;
-    ctx.enableSharpening      = enableSharpening;
-    ctx.enableAutoExposure    = enableAutoExposure;
-    ctx.device                = m_impl->device;
-
-    float scale;
-    switch (qualityLevel) {
-        case 0: scale = 2.0f; break;
-        case 1: scale = 1.7f; break;
-        case 2: scale = 1.5f; break;
-        case 3: scale = 3.0f; break;
-        default: scale = 1.5f;
-    }
-    ctx.renderWidth  = (int)(displaySizeX / scale + 0.5f);
-    ctx.renderHeight = (int)(displaySizeY / scale + 0.5f);
-
-    Logging::info("FSR4Backend: render=%dx%d upscale=%dx%d scale=%.2f",
-                  ctx.renderWidth, ctx.renderHeight, displaySizeX, displaySizeY, scale);
-
-    uint32_t flags = 0;
-    if (isContentHDR)          flags |= FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE;
-    if (depthInverted)         flags |= FFX_UPSCALE_ENABLE_DEPTH_INVERTED;
-    if (motionVectorsJittered) flags |= FFX_UPSCALE_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION;
-    if (enableAutoExposure)    flags |= FFX_UPSCALE_ENABLE_AUTO_EXPOSURE;
-
-    Logging::info("FSR4Backend: flags=0x%x HDR=%d depthInv=%d mvJitter=%d autoExp=%d sharp=%d",
-                  flags, isContentHDR, depthInverted, motionVectorsJittered,
-                  enableAutoExposure, enableSharpening);
-
-    // pNext chain: upscaleDesc -> overrideVersion -> backendDesc
-    // If we enumerated a supported version, force it via ffxOverrideVersion so
-    // the context deterministically runs the version the GPU supports (the
-    // newest one). Without the override, requesting 4.1.1 on an incapable GPU
-    // fails the whole context; with it, we get FSR4 on capable HW, FSR3.1 else.
-    ffxOverrideVersion overrideDesc = {};
-    overrideDesc.header.type  = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
-    overrideDesc.header.pNext = nullptr;
-    overrideDesc.versionId    = m_impl->chosenVersionId; // 0 => no override (legacy path)
-
-    ffxCreateBackendDX12Desc backendDesc = {};
-    backendDesc.header.type  = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
-    backendDesc.header.pNext = nullptr;
-    backendDesc.device       = m_impl->device;
-
-    ffxCreateContextDescUpscale upscaleDesc = {};
-    upscaleDesc.header.type             = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
-    if (m_impl->chosenVersionId) {
-        upscaleDesc.header.pNext        = &overrideDesc.header;
-        overrideDesc.header.pNext       = &backendDesc.header;
-    } else {
-        upscaleDesc.header.pNext        = &backendDesc.header;
-    }
-    upscaleDesc.flags                  = flags;
-    upscaleDesc.maxRenderSize.width    = (uint32_t)ctx.renderWidth;
-    upscaleDesc.maxRenderSize.height   = (uint32_t)ctx.renderHeight;
-    upscaleDesc.maxUpscaleSize.width   = (uint32_t)displaySizeX;
-    upscaleDesc.maxUpscaleSize.height  = (uint32_t)displaySizeY;
-    upscaleDesc.fpMessage             = messageCallback;
-
-    Logging::info("FSR4Backend: Calling ffxCreateContext...");
-
-    ffxContext ffxCtx = nullptr;
-    ffxReturnCode_t ret = 0;
-    // Guard the loader call: under Wine/Proton an AV inside the AMD loader must
-    // not escape into REFramework (which calls this from InitUpscaler/SimpleInit).
+    if (!m_impl) return nullptr;
+    SrwExclusiveGuard lockGuard(&m_impl->lock);
     try {
-        ret = m_impl->ffxCreateContextFn(&ffxCtx, &upscaleDesc.header, nullptr);
-    } catch (const std::exception& e) {
-        Logging::error("FSR4Backend: ffxCreateContext threw: %s", e.what());
-        return nullptr;
-    } catch (...) {
-        Logging::error("FSR4Backend: ffxCreateContext threw an unknown exception (SEH/AV?)");
-        return nullptr;
-    }
+        Logging::info("FSR4Backend::createContext(id=%d method=%d qual=%d %dx%d fmt=%d)",
+                      id, upscaleMethod, qualityLevel, displaySizeX, displaySizeY, format);
 
-    Logging::info("FSR4Backend: ffxCreateContext returned ret=%d ctx=%p", ret, ffxCtx);
+        if (!m_impl->available || !m_impl->device) {
+            Logging::error("FSR4Backend: not available");
+            return nullptr;
+        }
 
-    if (ret != 0 || ffxCtx == nullptr) {
-        // ffxCreateContext fails when the loader's FSR4 shader/payload files are
-        // missing or version-mismatched -> upscaler can't run -> black screen.
-        Logging::error("=============================================================");
-        Logging::error("FSR4Backend: ffxCreateContext failed (code=%d). The FSR4 payload", ret);
-        Logging::error("files required by amd_fidelityfx_loader_dx12.dll are missing or the");
-        Logging::error("loader version is wrong. Verify the FSR4 files match FFX version");
-        Logging::error("0x%x. FSR4 will NOT run (black screen).", (unsigned)FFX_UPSCALER_VERSION);
-        Logging::error("=============================================================");
-        return nullptr;
-    }
+        UpscaleContext ctx;
+        ctx.id                    = id;
+        ctx.upscaleMethod         = upscaleMethod;
+        ctx.qualityLevel          = qualityLevel;
+        ctx.displaySizeX          = displaySizeX;
+        ctx.displaySizeY          = displaySizeY;
+        ctx.format                = format;
+        ctx.isContentHDR          = isContentHDR;
+        ctx.depthInverted         = depthInverted;
+        ctx.motionVectorsJittered = motionVectorsJittered;
+        ctx.enableSharpening      = enableSharpening;
+        ctx.enableAutoExposure    = enableAutoExposure;
+        ctx.device                = m_impl->device;
 
-    Logging::info("FSR4Backend: ffxCreateContext SUCCEEDED");
-    ctx.ffxCtx = ffxCtx;
+        float scale;
+        switch (qualityLevel) {
+            case 0: scale = 2.0f; break;
+            case 1: scale = 1.7f; break;
+            case 2: scale = 1.5f; break;
+            case 3: scale = 3.0f; break;
+            default: scale = 1.5f;
+        }
+        ctx.renderWidth  = (int)(displaySizeX / scale + 0.5f);
+        ctx.renderHeight = (int)(displaySizeY / scale + 0.5f);
 
-    // Truth check: ask the context which version it actually initialized at.
-    // Normally matches chosenVersionName; if it diverges (driver quirk, etc.)
-    // log the real running version so the user isn't misled. The name pointer
-    // lives in loader memory, so copy it.
-    if (m_impl->ffxQueryFn) {
-        ffxQueryGetProviderVersion pv = {};
-        pv.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
-        if (m_impl->ffxQueryFn(&ffxCtx, &pv.header) == 0 && pv.versionName) {
-            if (m_impl->chosenVersionName[0] == '\0' ||
-                strncmp(m_impl->chosenVersionName, pv.versionName, sizeof(m_impl->chosenVersionName) - 1) != 0) {
-                strncpy_s(m_impl->chosenVersionName, pv.versionName, sizeof(m_impl->chosenVersionName) - 1);
-                Logging::always("FSR running version: %s (id=0x%016llx)",
-                                m_impl->chosenVersionName, (unsigned long long)pv.versionId);
+        Logging::info("FSR4Backend: render=%dx%d upscale=%dx%d scale=%.2f",
+                      ctx.renderWidth, ctx.renderHeight, displaySizeX, displaySizeY, scale);
+
+        uint32_t flags = 0;
+        if (isContentHDR)          flags |= FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE;
+        if (depthInverted)         flags |= FFX_UPSCALE_ENABLE_DEPTH_INVERTED;
+        if (motionVectorsJittered) flags |= FFX_UPSCALE_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION;
+        if (enableAutoExposure)    flags |= FFX_UPSCALE_ENABLE_AUTO_EXPOSURE;
+
+        Logging::info("FSR4Backend: flags=0x%x HDR=%d depthInv=%d mvJitter=%d autoExp=%d sharp=%d",
+                      flags, isContentHDR, depthInverted, motionVectorsJittered,
+                      enableAutoExposure, enableSharpening);
+
+        // pNext chain: upscaleDesc -> overrideVersion -> backendDesc
+        // If we enumerated a supported version, force it via ffxOverrideVersion so
+        // the context deterministically runs the version the GPU supports (the
+        // newest one). Without the override, requesting 4.1.1 on an incapable GPU
+        // fails the whole context; with it, we get FSR4 on capable HW, FSR3.1 else.
+        ffxOverrideVersion overrideDesc = {};
+        overrideDesc.header.type  = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
+        overrideDesc.header.pNext = nullptr;
+        overrideDesc.versionId    = m_impl->chosenVersionId; // 0 => no override (legacy path)
+
+        ffxCreateBackendDX12Desc backendDesc = {};
+        backendDesc.header.type  = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+        backendDesc.header.pNext = nullptr;
+        backendDesc.device       = m_impl->device;
+
+        ffxCreateContextDescUpscale upscaleDesc = {};
+        upscaleDesc.header.type             = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+        if (m_impl->chosenVersionId) {
+            upscaleDesc.header.pNext        = &overrideDesc.header;
+            overrideDesc.header.pNext       = &backendDesc.header;
+        } else {
+            upscaleDesc.header.pNext        = &backendDesc.header;
+        }
+        upscaleDesc.flags                  = flags;
+        upscaleDesc.maxRenderSize.width    = (uint32_t)ctx.renderWidth;
+        upscaleDesc.maxRenderSize.height   = (uint32_t)ctx.renderHeight;
+        upscaleDesc.maxUpscaleSize.width   = (uint32_t)displaySizeX;
+        upscaleDesc.maxUpscaleSize.height  = (uint32_t)displaySizeY;
+        upscaleDesc.fpMessage             = messageCallback;
+
+        Logging::info("FSR4Backend: Calling ffxCreateContext...");
+
+        ffxContext ffxCtx = nullptr;
+        ffxReturnCode_t ret = 0;
+        // Guard the loader call: under Wine/Proton an AV inside the AMD loader must
+        // not escape into REFramework (which calls this from InitUpscaler/SimpleInit).
+        try {
+            ret = m_impl->ffxCreateContextFn(&ffxCtx, &upscaleDesc.header, nullptr);
+        } catch (const std::exception& e) {
+            Logging::error("FSR4Backend: ffxCreateContext threw: %s", e.what());
+            return nullptr;
+        } catch (...) {
+            Logging::error("FSR4Backend: ffxCreateContext threw an unknown exception (SEH/AV?)");
+            return nullptr;
+        }
+
+        Logging::info("FSR4Backend: ffxCreateContext returned ret=%d ctx=%p", ret, ffxCtx);
+
+        if (ret != 0 || ffxCtx == nullptr) {
+            // ffxCreateContext fails when the loader's FSR4 shader/payload files are
+            // missing or version-mismatched -> upscaler can't run -> black screen.
+            Logging::error("=============================================================");
+            Logging::error("FSR4Backend: ffxCreateContext failed (code=%d). The FSR4 payload", ret);
+            Logging::error("files required by amd_fidelityfx_loader_dx12.dll are missing or the");
+            Logging::error("loader version is wrong. Verify the FSR4 files match FFX version");
+            Logging::error("0x%x. FSR4 will NOT run (black screen).", (unsigned)FFX_UPSCALER_VERSION);
+            Logging::error("=============================================================");
+            return nullptr;
+        }
+
+        Logging::info("FSR4Backend: ffxCreateContext SUCCEEDED");
+        ctx.ffxCtx = ffxCtx;
+
+        // Truth check: ask the context which version it actually initialized at.
+        // Normally matches chosenVersionName; if it diverges (driver quirk, etc.)
+        // log the real running version so the user isn't misled. The name pointer
+        // lives in loader memory, so copy it.
+        if (m_impl->ffxQueryFn) {
+            ffxQueryGetProviderVersion pv = {};
+            pv.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
+            if (m_impl->ffxQueryFn(&ffxCtx, &pv.header) == 0 && pv.versionName) {
+                if (m_impl->chosenVersionName[0] == '\0' ||
+                    strncmp(m_impl->chosenVersionName, pv.versionName, sizeof(m_impl->chosenVersionName) - 1) != 0) {
+                    strncpy_s(m_impl->chosenVersionName, pv.versionName, sizeof(m_impl->chosenVersionName) - 1);
+                    Logging::always("FSR running version: %s (id=0x%016llx)",
+                                    m_impl->chosenVersionName, (unsigned long long)pv.versionId);
+                }
             }
         }
-    }
 
-    // Create output texture
-    D3D12_RESOURCE_DESC texDesc = {};
-    texDesc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    texDesc.Width              = (UINT64)displaySizeX;
-    texDesc.Height             = (UINT)displaySizeY;
-    texDesc.DepthOrArraySize   = 1;
-    texDesc.MipLevels          = 1;
-    // Output texture format.
-    //   * Native Windows: the backbuffer format REFramework passes (e.g. 24,
-    //     R10G10B10A2_UNORM) works and matches the swap chain. Forcing another
-    //     format here CRASHES on Windows, so we use the backbuffer value as-is.
-    //   * Linux/Proton (vkd3d-proton): the swapchain PRESENTS as B8G8R8A8 (87/
-    //     BGRA) even though backbuffer->GetDesc() reports R8G8B8A8 (28/RGBA) - a
-    //     dxgi/vkd3d quirk (vkd3d canonicalizes the present image to RGBA8
-    //     internally and applies a (B,G,R,A) present swizzle). REFramework then
-    //     raw-copies our output (vkCmdCopyImage2, no reorder) into that backbuffer.
-    //     Empirically (in-game, pre-fix): 28 produced ALL channels scrambled
-    //     (not a clean R/B swap) because it's the wrong present format; 87
-    //     produced ONLY a clean R/B swap (correct format, wrong byte order) and
-    //     is PERFECT once the swap pass reorders FSR's RGBA bytes to BGRA.
-    //     So the SDR auto-default is 87 (BGRA) + swap pass.
-    //   * HDR: if the backbuffer is HDR-capable (R10G10B10A2=24 or
-    //     R16G16B16A16_FLOAT=10) we keep that container and skip the swap (it
-    //     goes through vkd3d's converting copy path, not the raw 8-bit path, so
-    //     no R/B flip is needed - matches the in-game result that 10=clean
-    //     colors). REFramework still hardcodes isContentHDR=false so FSR itself
-    //     runs SDR; this only preserves the HDR container end-to-end.
-    //     The INI [Backend] OutputFormat (if non-zero) always overrides this.
-    uint32_t outFmt;
-    const char* how;
-    if (isRunningUnderWine()) {
-        const bool backbufferHDR =
-            (format == (uint32_t)DXGI_FORMAT_R10G10B10A2_UNORM) ||
-            (format == (uint32_t)DXGI_FORMAT_R16G16B16A16_FLOAT);
-        if (backbufferHDR) {
-            outFmt = (uint32_t)format;            // keep HDR container, no swap
-            how = " (auto: Wine/Proton HDR, no swap)";
+        // Create output texture
+        D3D12_RESOURCE_DESC texDesc = {};
+        texDesc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        texDesc.Width              = (UINT64)displaySizeX;
+        texDesc.Height             = (UINT)displaySizeY;
+        texDesc.DepthOrArraySize   = 1;
+        texDesc.MipLevels          = 1;
+        // Output texture format.
+        //   * Native Windows: the backbuffer format REFramework passes (e.g. 24,
+        //     R10G10B10A2_UNORM) works and matches the swap chain. Forcing another
+        //     format here CRASHES on Windows, so we use the backbuffer value as-is.
+        //   * Linux/Proton (vkd3d-proton): the swapchain PRESENTS as B8G8R8A8 (87/
+        //     BGRA) even though backbuffer->GetDesc() reports R8G8B8A8 (28/RGBA) - a
+        //     dxgi/vkd3d quirk (vkd3d canonicalizes the present image to RGBA8
+        //     internally and applies a (B,G,R,A) present swizzle). REFramework then
+        //     raw-copies our output (vkCmdCopyImage2, no reorder) into that backbuffer.
+        //     Empirically (in-game, pre-fix): 28 produced ALL channels scrambled
+        //     (not a clean R/B swap) because it's the wrong present format; 87
+        //     produced ONLY a clean R/B swap (correct format, wrong byte order) and
+        //     is PERFECT once the swap pass reorders FSR's RGBA bytes to BGRA.
+        //     So the SDR auto-default is 87 (BGRA) + swap pass.
+        //   * HDR: if the backbuffer is HDR-capable (R10G10B10A2=24 or
+        //     R16G16B16A16_FLOAT=10) we keep that container and skip the swap (it
+        //     goes through vkd3d's converting copy path, not the raw 8-bit path, so
+        //     no R/B flip is needed - matches the in-game result that 10=clean
+        //     colors). REFramework still hardcodes isContentHDR=false so FSR itself
+        //     runs SDR; this only preserves the HDR container end-to-end.
+        //     The INI [Backend] OutputFormat (if non-zero) always overrides this.
+        uint32_t outFmt;
+        const char* how;
+        if (isRunningUnderWine()) {
+            const bool backbufferHDR =
+                (format == (uint32_t)DXGI_FORMAT_R10G10B10A2_UNORM) ||
+                (format == (uint32_t)DXGI_FORMAT_R16G16B16A16_FLOAT);
+            if (backbufferHDR) {
+                outFmt = (uint32_t)format;            // keep HDR container, no swap
+                how = " (auto: Wine/Proton HDR, no swap)";
+            } else {
+                outFmt = (uint32_t)DXGI_FORMAT_B8G8R8A8_UNORM; // 87 BGRA present + swap
+                how = " (auto: Wine/Proton BGRA)";
+            }
         } else {
-            outFmt = (uint32_t)DXGI_FORMAT_B8G8R8A8_UNORM; // 87 BGRA present + swap
-            how = " (auto: Wine/Proton BGRA)";
+            outFmt = (uint32_t)format;                // Windows - backbuffer fmt
+            how = " (auto: Windows backbuffer)";
         }
-    } else {
-        outFmt = (uint32_t)format;                // Windows - backbuffer fmt
-        how = " (auto: Windows backbuffer)";
-    }
-    if (s_outputFormatOverride != 0) {
-        outFmt = (uint32_t)s_outputFormatOverride;
-        how = " (INI override)";
-    }
-    Logging::info("FSR4Backend: output format backbuffer=%d -> using=%d%s",
-                  (int)format, (int)outFmt, how);
-    texDesc.Format             = (DXGI_FORMAT)outFmt;
-    texDesc.SampleDesc.Count   = 1;
-    texDesc.SampleDesc.Quality = 0;
-    texDesc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    texDesc.Flags              = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        if (s_outputFormatOverride != 0) {
+            outFmt = (uint32_t)s_outputFormatOverride;
+            how = " (INI override)";
+        }
+        Logging::info("FSR4Backend: output format backbuffer=%d -> using=%d%s",
+                      (int)format, (int)outFmt, how);
+        texDesc.Format             = (DXGI_FORMAT)outFmt;
+        texDesc.SampleDesc.Count   = 1;
+        texDesc.SampleDesc.Quality = 0;
+        texDesc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        texDesc.Flags              = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
-    D3D12_HEAP_PROPERTIES heapProps = {};
-    heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_HEAP_PROPERTIES heapProps = {};
+        heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-    ID3D12Resource* outputTexture = nullptr;
-    HRESULT hr = m_impl->device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
-        &texDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&outputTexture));
-    if (FAILED(hr)) {
-        Logging::error("FSR4Backend: Failed to create output texture hr=%08x", hr);
-        m_impl->ffxDestroyContextFn(&ffxCtx, nullptr);
+        ID3D12Resource* outputTexture = nullptr;
+        HRESULT hr = m_impl->device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+            &texDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&outputTexture));
+        if (FAILED(hr)) {
+            Logging::error("FSR4Backend: Failed to create output texture hr=%08x", hr);
+            m_impl->ffxDestroyContextFn(&ffxCtx, nullptr);
+            return nullptr;
+        }
+
+        ctx.outputTexture = outputTexture;
+        ctx.format        = (int)outFmt; // store the ACTUAL created format, not just requested
+
+        // Linux/Proton red<->blue correction. The Proton backbuffer is ALWAYS
+        // B8G8R8A8 (87) at present time even though backbuffer->GetDesc() reports
+        // R8G8B8A8 (28): vkd3d canonicalizes the present image to VK_FORMAT_R8G8B8A8
+        // internally (RGBA8 is STORAGE_IMAGE-safe; BGRA8 is not) and applies a
+        // (B,G,R,A) swizzle at present (vkd3d_src/command.c:11017 CopyResource
+        // byte-depth guard + present swizzle). FSR always writes RGBA-order bytes,
+        // so for any 32bpp 4-channel UNORM output (28 or 87) we must hand back
+        // BGRA-ordered bytes. HDR formats (24=R10G10B10A2, 10=R16G16B16A16_FLOAT)
+        // take the converting copy path (not raw 8-bit) and need no swap, so the
+        // gate below intentionally skips them. Native Windows backbuffer is
+        // whatever REFramework passed (already correct) -> skip.
+        void* returnTexture = outputTexture;
+        if (isRunningUnderWine() &&
+            (outFmt == (uint32_t)DXGI_FORMAT_R8G8B8A8_UNORM ||
+             outFmt == (uint32_t)DXGI_FORMAT_B8G8R8A8_UNORM)) {
+            if (ensureRbSwapPipeline(m_impl->device, &m_impl->rbSwapRootSig, &m_impl->rbSwapPso) &&
+                createRbSwapResources(m_impl->device, ctx, (UINT)displaySizeX, (UINT)displaySizeY)) {
+                m_impl->rbSwapEnabled = true;
+                returnTexture = ctx.swapTexture;
+                Logging::info("FSR4Backend: R/B swap pass ENABLED (RGBA output -> BGRA-ordered swap texture)");
+            } else {
+                Logging::warn("FSR4Backend: R/B swap setup FAILED; returning raw RGBA output (colors may swap)");
+            }
+        }
+
+        m_impl->contexts[id] = ctx;
+
+        // REFramework reads the returned texture as m_upscaled_textures[id-1] and
+        // raw-copies it to the backbuffer. We return the swap texture (BGRA-ordered
+        // bytes) on Linux, or the FSR output on Windows.
+        Logging::info("FSR4Backend: context id=%d ready, texture=%p (swap=%d)",
+                      id, returnTexture, (int)(returnTexture != outputTexture));
+        return returnTexture;
+    } catch (const std::exception& e) {
+        Logging::error("FSR4Backend: createContext threw: %s", e.what());
+        return nullptr;
+    } catch (...) {
+        Logging::error("FSR4Backend: createContext threw an unknown exception (SEH/AV?)");
         return nullptr;
     }
-
-    ctx.outputTexture = outputTexture;
-    ctx.format        = (int)outFmt; // store the ACTUAL created format, not just requested
-
-    // Linux/Proton red<->blue correction. The Proton backbuffer is ALWAYS
-    // B8G8R8A8 (87) at present time even though backbuffer->GetDesc() reports
-    // R8G8B8A8 (28): vkd3d canonicalizes the present image to VK_FORMAT_R8G8B8A8
-    // internally (RGBA8 is STORAGE_IMAGE-safe; BGRA8 is not) and applies a
-    // (B,G,R,A) swizzle at present (vkd3d_src/command.c:11017 CopyResource
-    // byte-depth guard + present swizzle). FSR always writes RGBA-order bytes,
-    // so for any 32bpp 4-channel UNORM output (28 or 87) we must hand back
-    // BGRA-ordered bytes. HDR formats (24=R10G10B10A2, 10=R16G16B16A16_FLOAT)
-    // take the converting copy path (not raw 8-bit) and need no swap, so the
-    // gate below intentionally skips them. Native Windows backbuffer is
-    // whatever REFramework passed (already correct) -> skip.
-    void* returnTexture = outputTexture;
-    if (isRunningUnderWine() &&
-        (outFmt == (uint32_t)DXGI_FORMAT_R8G8B8A8_UNORM ||
-         outFmt == (uint32_t)DXGI_FORMAT_B8G8R8A8_UNORM)) {
-        if (ensureRbSwapPipeline(m_impl->device, &m_impl->rbSwapRootSig, &m_impl->rbSwapPso) &&
-            createRbSwapResources(m_impl->device, ctx, (UINT)displaySizeX, (UINT)displaySizeY)) {
-            m_impl->rbSwapEnabled = true;
-            returnTexture = ctx.swapTexture;
-            Logging::info("FSR4Backend: R/B swap pass ENABLED (RGBA output -> BGRA-ordered swap texture)");
-        } else {
-            Logging::warn("FSR4Backend: R/B swap setup FAILED; returning raw RGBA output (colors may swap)");
-        }
-    }
-
-    m_impl->contexts[id] = ctx;
-
-    // REFramework reads the returned texture as m_upscaled_textures[id-1] and
-    // raw-copies it to the backbuffer. We return the swap texture (BGRA-ordered
-    // bytes) on Linux, or the FSR output on Windows.
-    Logging::info("FSR4Backend: context id=%d ready, texture=%p (swap=%d)",
-                  id, returnTexture, (int)(returnTexture != outputTexture));
-    return returnTexture;
 }
 
 void FSR4Backend::evaluate(UpscaleParams* params) {
@@ -1391,147 +1463,149 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
                             float motionScaleX, float motionScaleY, bool reset,
                             float nearPlane, float farPlane, float verticalFOV,
                             bool execute, void* cmdList) {
-    // --- Diagnostics (debug builds only) ------------------------------------
-    // Gated behind FSR4_DIAGNOSTICS. Define it for a debugging release to get the
-    // per-second CALLED counter, the one-time cmdList PROBE, and the true
-    // in-function CPU timer. Off in normal builds so Release stays clean.
-#ifndef FSR4_DIAGNOSTICS
-    (void)cmdList; (void)destination; (void)color; (void)motionVector; (void)depth; (void)execute;
-#else
-    // Diagnostic: log entry (rate-limited to ~1/sec) so we can see whether
-    // REFramework is invoking evaluate() at all, and why it might bail.
-    {
-        static long long s_last = 0; static int s_count = 0;
-        long long now = (long long)GetTickCount64();
-        if (now - s_last > 1000) {
-            Logging::info("FSR4Backend::evaluate(id=%d) CALLED %d times in last sec | color=%p mv=%p depth=%p dst=%p exec=%d",
-                          id, s_count, color, motionVector, depth, destination, (int)execute);
-            s_last = now; s_count = 0;
-        }
-        s_count++;
-    }
-
-    // True per-call CPU timing: stamp entry here, measure elapsed at function
-    // exit. (The old timer measured the gap BETWEEN calls = 1/fps, not CPU cost,
-    // so it always read ~4.4ms at 227fps and was useless for finding hot spots.)
-    long long s_entryT = (long long)GetTickCount64();
-#endif
-
-    auto it = m_impl->contexts.find(id);
-    if (it == m_impl->contexts.end() || !it->second.ffxCtx || !m_impl->ffxDispatchFn) {
-        static long long s_last = 0;
-        long long now = (long long)GetTickCount64();
-        if (now - s_last > 2000) {
-            Logging::warn("FSR4Backend::evaluate(id=%d): no context/dispatch fn (map size=%zu, ffxDispatch=%p)",
-                          id, m_impl->contexts.size(), (void*)m_impl->ffxDispatchFn);
-            s_last = now;
-        }
-        return;
-    }
-    if (!execute) {
-        static long long s_last = 0;
-        long long now = (long long)GetTickCount64();
-        if (now - s_last > 2000) {
-            Logging::info("FSR4Backend::evaluate(id=%d): skipping (execute=false)", id);
-            s_last = now;
-        }
-        return;
-    }
-
-    auto& ctx = it->second;
-
-    void* effectiveCmdList = cmdList;
-    void* effectiveDst = destination;
-    if (!destination)
-        effectiveDst = ctx.outputTexture;
-
-    if (!cmdList) {
-        if (!m_impl->cmdAlloc || !m_impl->cmdList) return;
-
-        if (m_impl->fence && m_impl->fenceValue > 0 &&
-            m_impl->fence->GetCompletedValue() < m_impl->fenceValue) {
-            m_impl->fence->SetEventOnCompletion(m_impl->fenceValue, m_impl->fenceEvent);
-            WaitForSingleObject(m_impl->fenceEvent, INFINITE);
-        }
-
-        if (FAILED(m_impl->cmdAlloc->Reset())) return;
-        if (FAILED(m_impl->cmdList->Reset(m_impl->cmdAlloc, nullptr))) return;
-        effectiveCmdList = m_impl->cmdList;
-    }
-
-    // One-time diagnostic (FSR4_DIAGNOSTICS only): how does REFramework hand us
-    // the command list? If nullptr we spin up our OWN ID3D12GraphicsCommandList
-    // and execute+Signal it every frame (see L862). This is parity with every
-    // upscaler (REFramework passes a null list to all of them via UpscaleParams),
-    // so it is NOT a gap source — but the probe is useful for debugging Release.
-#ifndef FSR4_DIAGNOSTICS
-    (void)cmdList;
-#else
-    {
-        static bool s_logged = false;
-        if (!s_logged) {
-            s_logged = true;
-            Logging::info("FSR4Backend: PROBE cmdList=%s effectiveDst=%s -> %s submit path",
-                          cmdList ? "provided" : "NULL",
-                          destination ? "provided" : "internal-output",
-                          cmdList ? "record-into-REFramework-list (no extra submit)"
-                                  : "OWN internal command list (ExecuteCommandLists+Signal per frame)");
-        }
-    }
-#endif
-
-    ffxDispatchDescUpscale dd = {};
-    dd.header.type  = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
-    dd.header.pNext = nullptr;
-    dd.commandList  = effectiveCmdList;
-    // Inputs are shader-read resources the engine just rendered into. The FFX
-    // loader expects its OWN state enum (not raw D3D12 states). COMMON lets the
-    // backend add the correct barriers; UNDEFINED (0) here would make FSR4 fail
-    // to read the game's color/depth/motion -> black output.
-    dd.color          = makeResource((ID3D12Resource*)color, FFX_RESOURCE_STATE_COMMON, FFX_API_RESOURCE_USAGE_READ_ONLY);
-    dd.depth          = makeResource((ID3D12Resource*)depth, FFX_RESOURCE_STATE_COMMON, FFX_API_RESOURCE_USAGE_READ_ONLY);
-    dd.motionVectors  = makeResource((ID3D12Resource*)motionVector, FFX_RESOURCE_STATE_COMMON, FFX_API_RESOURCE_USAGE_READ_ONLY);
-    dd.exposure       = makeResource(nullptr, 0, 0);
-    dd.reactive       = makeResource(nullptr, 0, 0);
-    dd.transparencyAndComposition = makeResource(nullptr, 0, 0);
-    // Output is written by FSR4 as a UAV. REFramework's copier then copies it
-    // from UAV -> backbuffer (PRESENT), so it must be left in UAV state.
-    dd.output         = makeResource((ID3D12Resource*)effectiveDst, FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_API_RESOURCE_USAGE_UAV);
-
-    dd.jitterOffset.x          = jitterOffsetX;
-    dd.jitterOffset.y          = jitterOffsetY;
-    dd.motionVectorScale.x     = ctx.motionScaleX;
-    dd.motionVectorScale.y     = ctx.motionScaleY;
-    dd.renderSize.width        = (uint32_t)ctx.renderWidth;
-    dd.renderSize.height       = (uint32_t)ctx.renderHeight;
-    dd.upscaleSize.width       = (uint32_t)ctx.displaySizeX;
-    dd.upscaleSize.height      = (uint32_t)ctx.displaySizeY;
-    dd.enableSharpening        = ctx.enableSharpening;
-    // REFramework's "Sharpness Amount" slider is authored for FSR3 and ranges
-    // 0.0..5.0, defaulting to 0.0. The FFX upscale API (ffx_upscale.h) defines
-    // `sharpness` as 0..1 (1 = max RCAS). We LINEARLY normalize the whole
-    // 0..5 slider into 0..1 (s /= 5.0 for any value above 0) so the knob tracks
-    // RCAS evenly end-to-end. 0 maps to 0 (no sharpening) — the toggle respects
-    // the slider, so enabling "Sharpness" with the amount left at 0 does nothing
-    // (no auto-fallback). Fix for "the sharpness slider does nothing" — it was
-    // being forwarded as 0.0 the whole time.
-    {
-        float s = sharpness;
-        if (s < 0.0f) s = 0.0f;
-        // REFramework slider max is 5.0 -> map linearly to FFX max 1.0.
-        if (s > 0.0f) s /= 5.0f;
-        dd.sharpness = s;
-    }
-    dd.frameTimeDelta          = 16.6f;
-    dd.preExposure             = 1.0f;
-    dd.reset                   = reset;
-    dd.cameraNear              = nearPlane;
-    dd.cameraFar               = farPlane;
-    dd.cameraFovAngleVertical  = verticalFOV;
-    dd.viewSpaceToMetersFactor = 1.0f;
-    dd.flags                   = 0;
-
+    if (!m_impl) return;
+    SrwExclusiveGuard lockGuard(&m_impl->lock);
     try {
+        // --- Diagnostics (debug builds only) ------------------------------------
+        // Gated behind FSR4_DIAGNOSTICS. Define it for a debugging release to get the
+        // per-second CALLED counter, the one-time cmdList PROBE, and the true
+        // in-function CPU timer. Off in normal builds so Release stays clean.
+#ifndef FSR4_DIAGNOSTICS
+        (void)cmdList; (void)destination; (void)color; (void)motionVector; (void)depth; (void)execute;
+#else
+        // Diagnostic: log entry (rate-limited to ~1/sec) so we can see whether
+        // REFramework is invoking evaluate() at all, and why it might bail.
+        {
+            static long long s_last = 0; static int s_count = 0;
+            long long now = (long long)GetTickCount64();
+            if (now - s_last > 1000) {
+                Logging::info("FSR4Backend::evaluate(id=%d) CALLED %d times in last sec | color=%p mv=%p depth=%p dst=%p exec=%d",
+                              id, s_count, color, motionVector, depth, destination, (int)execute);
+                s_last = now; s_count = 0;
+            }
+            s_count++;
+        }
+
+        // True per-call CPU timing: stamp entry here, measure elapsed at function
+        // exit. (The old timer measured the gap BETWEEN calls = 1/fps, not CPU cost,
+        // so it always read ~4.4ms at 227fps and was useless for finding hot spots.)
+        long long s_entryT = (long long)GetTickCount64();
+#endif
+
+        auto it = m_impl->contexts.find(id);
+        if (it == m_impl->contexts.end() || !it->second.ffxCtx || !m_impl->ffxDispatchFn) {
+            static long long s_last = 0;
+            long long now = (long long)GetTickCount64();
+            if (now - s_last > 2000) {
+                Logging::warn("FSR4Backend::evaluate(id=%d): no context/dispatch fn (map size=%zu, ffxDispatch=%p)",
+                              id, m_impl->contexts.size(), (void*)m_impl->ffxDispatchFn);
+                s_last = now;
+            }
+            return;
+        }
+        if (!execute) {
+            static long long s_last = 0;
+            long long now = (long long)GetTickCount64();
+            if (now - s_last > 2000) {
+                Logging::info("FSR4Backend::evaluate(id=%d): skipping (execute=false)", id);
+                s_last = now;
+            }
+            return;
+        }
+
+        auto& ctx = it->second;
+
+        void* effectiveCmdList = cmdList;
+        void* effectiveDst = destination;
+        if (!destination)
+            effectiveDst = ctx.outputTexture;
+
+        if (!cmdList) {
+            if (!m_impl->cmdAlloc || !m_impl->cmdList) return;
+
+            if (m_impl->fence && m_impl->fenceValue > 0 &&
+                m_impl->fence->GetCompletedValue() < m_impl->fenceValue) {
+                m_impl->fence->SetEventOnCompletion(m_impl->fenceValue, m_impl->fenceEvent);
+                WaitForSingleObject(m_impl->fenceEvent, INFINITE);
+            }
+
+            if (FAILED(m_impl->cmdAlloc->Reset())) return;
+            if (FAILED(m_impl->cmdList->Reset(m_impl->cmdAlloc, nullptr))) return;
+            effectiveCmdList = m_impl->cmdList;
+        }
+
+        // One-time diagnostic (FSR4_DIAGNOSTICS only): how does REFramework hand us
+        // the command list? If nullptr we spin up our OWN ID3D12GraphicsCommandList
+        // and execute+Signal it every frame (see L862). This is parity with every
+        // upscaler (REFramework passes a null list to all of them via UpscaleParams),
+        // so it is NOT a gap source — but the probe is useful for debugging Release.
+#ifndef FSR4_DIAGNOSTICS
+        (void)cmdList;
+#else
+        {
+            static bool s_logged = false;
+            if (!s_logged) {
+                s_logged = true;
+                Logging::info("FSR4Backend: PROBE cmdList=%s effectiveDst=%s -> %s submit path",
+                              cmdList ? "provided" : "NULL",
+                              destination ? "provided" : "internal-output",
+                              cmdList ? "record-into-REFramework-list (no extra submit)"
+                                      : "OWN internal command list (ExecuteCommandLists+Signal per frame)");
+            }
+        }
+#endif
+
+        ffxDispatchDescUpscale dd = {};
+        dd.header.type  = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
+        dd.header.pNext = nullptr;
+        dd.commandList  = effectiveCmdList;
+        // Inputs are shader-read resources the engine just rendered into. The FFX
+        // loader expects its OWN state enum (not raw D3D12 states). COMMON lets the
+        // backend add the correct barriers; UNDEFINED (0) here would make FSR4 fail
+        // to read the game's color/depth/motion -> black output.
+        dd.color          = makeResource((ID3D12Resource*)color, FFX_RESOURCE_STATE_COMMON, FFX_API_RESOURCE_USAGE_READ_ONLY);
+        dd.depth          = makeResource((ID3D12Resource*)depth, FFX_RESOURCE_STATE_COMMON, FFX_API_RESOURCE_USAGE_READ_ONLY);
+        dd.motionVectors  = makeResource((ID3D12Resource*)motionVector, FFX_RESOURCE_STATE_COMMON, FFX_API_RESOURCE_USAGE_READ_ONLY);
+        dd.exposure       = makeResource(nullptr, 0, 0);
+        dd.reactive       = makeResource(nullptr, 0, 0);
+        dd.transparencyAndComposition = makeResource(nullptr, 0, 0);
+        // Output is written by FSR4 as a UAV. REFramework's copier then copies it
+        // from UAV -> backbuffer (PRESENT), so it must be left in UAV state.
+        dd.output         = makeResource((ID3D12Resource*)effectiveDst, FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_API_RESOURCE_USAGE_UAV);
+
+        dd.jitterOffset.x          = jitterOffsetX;
+        dd.jitterOffset.y          = jitterOffsetY;
+        dd.motionVectorScale.x     = ctx.motionScaleX;
+        dd.motionVectorScale.y     = ctx.motionScaleY;
+        dd.renderSize.width        = (uint32_t)ctx.renderWidth;
+        dd.renderSize.height       = (uint32_t)ctx.renderHeight;
+        dd.upscaleSize.width       = (uint32_t)ctx.displaySizeX;
+        dd.upscaleSize.height      = (uint32_t)ctx.displaySizeY;
+        dd.enableSharpening        = ctx.enableSharpening;
+        // REFramework's "Sharpness Amount" slider is authored for FSR3 and ranges
+        // 0.0..5.0, defaulting to 0.0. The FFX upscale API (ffx_upscale.h) defines
+        // `sharpness` as 0..1 (1 = max RCAS). We LINEARLY normalize the whole
+        // 0..5 slider into 0..1 (s /= 5.0 for any value above 0) so the knob tracks
+        // RCAS evenly end-to-end. 0 maps to 0 (no sharpening) — the toggle respects
+        // the slider, so enabling "Sharpness" with the amount left at 0 does nothing
+        // (no auto-fallback). Fix for "the sharpness slider does nothing" — it was
+        // being forwarded as 0.0 the whole time.
+        {
+            float s = sharpness;
+            if (s < 0.0f) s = 0.0f;
+            // REFramework slider max is 5.0 -> map linearly to FFX max 1.0.
+            if (s > 0.0f) s /= 5.0f;
+            dd.sharpness = s;
+        }
+        dd.frameTimeDelta          = 16.6f;
+        dd.preExposure             = 1.0f;
+        dd.reset                   = reset;
+        dd.cameraNear              = nearPlane;
+        dd.cameraFar               = farPlane;
+        dd.cameraFovAngleVertical  = verticalFOV;
+        dd.viewSpaceToMetersFactor = 1.0f;
+        dd.flags                   = 0;
+
         ffxReturnCode_t ret = m_impl->ffxDispatchFn(&ctx.ffxCtx, &dd.header);
         if (ret != 0) {
             Logging::error("FSR4Backend: ffxDispatch returned code=%d", ret);
@@ -1594,6 +1668,43 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             }
         }
 
+        if (!cmdList && effectiveCmdList && m_impl->commandQueue) {
+            ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
+            cl->Close();
+
+            ID3D12CommandList* lists[] = { cl };
+            m_impl->commandQueue->ExecuteCommandLists(1, lists);
+            // Signal the fence so the allocator isn't reset while this work is still
+            // in flight (needed for allocator lifetime), but DO NOT block on it.
+            // The old code did WaitForSingleObject(..., INFINITE) here every frame,
+            // which forced a full CPU->GPU sync and serialized the pipeline — the
+            // cause of the FSR4 perf regression (GPU left ~23% idle, CPU-bound).
+            // REFramework copies our output on the SAME command queue (copier.copy
+            // -> backbuffer), so in-order queue execution already guarantees the
+            // upscale finishes before the copy reads it. Forward progress is bounded
+            // by the pre-reset check at 585 via the next frame's WaitForSingleObject.
+            m_impl->commandQueue->Signal(m_impl->fence, ++m_impl->fenceValue);
+        }
+
+        // --- True per-call CPU timing (FSR4_DIAGNOSTICS only; scoped entry->here) --
+        // Measures THIS function's CPU work per frame. Off in normal builds.
+#ifndef FSR4_DIAGNOSTICS
+        (void)0;
+#else
+        {
+            static long long s_lastLog = 0;
+            static double s_msSum = 0; static long long s_n = 0;
+            long long t1 = (long long)GetTickCount64();
+            s_msSum += (double)(t1 - s_entryT); s_n++;
+            if (t1 - s_lastLog > 2000) {
+                s_lastLog = t1;
+                double avg = s_n ? (s_msSum / (double)s_n) : 0.0;
+                Logging::info("FSR4Backend: evaluate() CPU avg=%.4f ms over %lld calls (true in-function cost)",
+                              avg, (long long)s_n);
+                s_msSum = 0; s_n = 0;
+            }
+        }
+#endif
     } catch (const std::exception& e) {
         Logging::error("FSR4Backend: ffxDispatch exception: %s", e.what());
         return;
@@ -1601,47 +1712,11 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         Logging::error("FSR4Backend: ffxDispatch CRASHED");
         return;
     }
-
-    if (!cmdList && effectiveCmdList && m_impl->commandQueue) {
-        ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
-        cl->Close();
-
-        ID3D12CommandList* lists[] = { cl };
-        m_impl->commandQueue->ExecuteCommandLists(1, lists);
-        // Signal the fence so the allocator isn't reset while this work is still
-        // in flight (needed for allocator lifetime), but DO NOT block on it.
-        // The old code did WaitForSingleObject(..., INFINITE) here every frame,
-        // which forced a full CPU->GPU sync and serialized the pipeline — the
-        // cause of the FSR4 perf regression (GPU left ~23% idle, CPU-bound).
-        // REFramework copies our output on the SAME command queue (copier.copy
-        // -> backbuffer), so in-order queue execution already guarantees the
-        // upscale finishes before the copy reads it. Forward progress is bounded
-        // by the pre-reset check at 585 via the next frame's WaitForSingleObject.
-        m_impl->commandQueue->Signal(m_impl->fence, ++m_impl->fenceValue);
-    }
-
-    // --- True per-call CPU timing (FSR4_DIAGNOSTICS only; scoped entry->here) --
-    // Measures THIS function's CPU work per frame. Off in normal builds.
-#ifndef FSR4_DIAGNOSTICS
-    (void)0;
-#else
-    {
-        static long long s_lastLog = 0;
-        static double s_msSum = 0; static long long s_n = 0;
-        long long t1 = (long long)GetTickCount64();
-        s_msSum += (double)(t1 - s_entryT); s_n++;
-        if (t1 - s_lastLog > 2000) {
-            s_lastLog = t1;
-            double avg = s_n ? (s_msSum / (double)s_n) : 0.0;
-            Logging::info("FSR4Backend: evaluate() CPU avg=%.4f ms over %lld calls (true in-function cost)",
-                          avg, (long long)s_n);
-            s_msSum = 0; s_n = 0;
-        }
-    }
-#endif
 }
 
 void FSR4Backend::release(int id) {
+    if (!m_impl) return;
+    SrwExclusiveGuard lockGuard(&m_impl->lock);
     auto it = m_impl->contexts.find(id);
     if (it != m_impl->contexts.end()) {
         if (it->second.ffxCtx && m_impl->ffxDestroyContextFn)
@@ -1657,21 +1732,29 @@ void FSR4Backend::release(int id) {
 }
 
 void FSR4Backend::setMotionScaleX(int id, float scale) {
+    if (!m_impl) return;
+    SrwExclusiveGuard lockGuard(&m_impl->lock);
     auto it = m_impl->contexts.find(id);
     if (it != m_impl->contexts.end()) it->second.motionScaleX = scale;
 }
 
 void FSR4Backend::setMotionScaleY(int id, float scale) {
+    if (!m_impl) return;
+    SrwExclusiveGuard lockGuard(&m_impl->lock);
     auto it = m_impl->contexts.find(id);
     if (it != m_impl->contexts.end()) it->second.motionScaleY = scale;
 }
 
 int FSR4Backend::getRenderWidth(int id) const {
+    if (!m_impl) return 0;
+    SrwSharedGuard lockGuard(&m_impl->lock);
     auto it = m_impl->contexts.find(id);
     return it != m_impl->contexts.end() ? it->second.renderWidth : 0;
 }
 
 int FSR4Backend::getRenderHeight(int id) const {
+    if (!m_impl) return 0;
+    SrwSharedGuard lockGuard(&m_impl->lock);
     auto it = m_impl->contexts.find(id);
     return it != m_impl->contexts.end() ? it->second.renderHeight : 0;
 }
@@ -1680,6 +1763,8 @@ float FSR4Backend::getOptimalSharpness(int id) const { return 0.5f; }
 float FSR4Backend::getOptimalMipmapBias(int id) const { return 0.0f; }
 
 int FSR4Backend::getJitterPhaseCount(int id) const {
+    if (!m_impl) return 1;
+    SrwSharedGuard lockGuard(&m_impl->lock);
     auto it = m_impl->contexts.find(id);
     // The pd-upscaler contract's GetJitterPhaseCount export DOES receive the
     // real evaluate id (REFramework passes get_evaluate_id() = 1 for the left
@@ -1701,6 +1786,8 @@ int FSR4Backend::getJitterPhaseCount(int id) const {
 }
 
 int FSR4Backend::getJitterOffset(int id, float* outX, float* outY, int index, int phaseCount) const {
+    if (!m_impl) return -1;
+    SrwSharedGuard lockGuard(&m_impl->lock);
     auto it = m_impl->contexts.find(id);
     // CRITICAL: the pd-upscaler contract's GetJitterOffset export carries NO id
     // (signature int(__stdcall*)(float*,float*,int,int)); our wrapper hardcodes
@@ -1719,10 +1806,10 @@ int FSR4Backend::getJitterOffset(int id, float* outX, float* outY, int index, in
         q.pOutY       = outY;
         ffxReturnCode_t rc = m_impl->ffxQueryFn(&it->second.ffxCtx, &q.header);
         if (rc != 0) {
-            static long long s_last = 0;
+            static std::atomic<long long> s_last{0};
             long long now = (long long)GetTickCount64();
-            if (now - s_last > 2000) {
-                s_last = now;
+            long long prev = s_last.load(std::memory_order_relaxed);
+            if (now - prev > 2000 && s_last.compare_exchange_strong(prev, now, std::memory_order_acq_rel)) {
                 Logging::error("FSR4Backend: ffxQuery jitter offset FAILED rc=%d (outX=%p outY=%p)", rc, (void*)outX, (void*)outY);
             }
             return -1;
@@ -1735,16 +1822,18 @@ int FSR4Backend::getJitterOffset(int id, float* outX, float* outY, int index, in
 
 // One-time diagnostic: prove the FFX jitter query actually returns non-zero
 // sub-pixel offsets (and that the id-0 fallback resolved a real context).
-namespace { bool s_jitterLogged = false; }
+namespace { std::atomic<bool> s_jitterLogged{false}; }
 void FSR4Backend::logJitterOnce(float x, float y, int index, int phaseCount) const {
-    if (s_jitterLogged) return;
-    s_jitterLogged = true;
+    if (s_jitterLogged.load(std::memory_order_relaxed)) return;
+    if (s_jitterLogged.exchange(true, std::memory_order_acq_rel)) return;
     Logging::info("FSR4Backend: JITTER_QUERY idx=%d phase=%d -> offset=(%.5f,%.5f) %s",
                   index, phaseCount, x, y,
                   (x != 0.0f || y != 0.0f) ? "(NON-ZERO: jitter active)" : "(ZERO: FSR4 jitter seq returned 0!)");
 }
 
 bool FSR4Backend::isMethodAvailable(int upscaleMethod) const {
+    if (!m_impl) return false;
+    SrwSharedGuard lockGuard(&m_impl->lock);
     if (!m_impl->available) return false;
     // REFramework's TemporalUpscaler enumerates exactly three method ids via
     // PDUpscaleType { DLSS=0, FSR2=1, XeSS=2 } (TemporalUpscaler.cpp loops

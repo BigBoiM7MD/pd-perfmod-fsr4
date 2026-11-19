@@ -2,6 +2,7 @@
 #include "../include/FSR4Backend.h"
 #include "../include/Logging.h"
 
+#include <atomic>
 #include <cstring>
 #include <exception>
 #include <d3d12.h>
@@ -16,8 +17,39 @@ static FSR4Backend* g_fsr4 = nullptr;
 static INIT_ONCE g_initOnce = INIT_ONCE_STATIC_INIT;
 static void (*g_logDelegate)(char*, int) = nullptr;
 
+static SRWLOCK g_fallbackLock = SRWLOCK_INIT;
 static ID3D12Device* g_d3d12Device = nullptr;
 static std::unordered_map<int, ID3D12Resource*> g_fallbackTextures;
+
+namespace {
+
+struct FallbackSrwExclusiveGuard {
+    explicit FallbackSrwExclusiveGuard(SRWLOCK* lock) noexcept : m_lock(lock) {
+        if (m_lock) AcquireSRWLockExclusive(m_lock);
+    }
+    ~FallbackSrwExclusiveGuard() {
+        if (m_lock) ReleaseSRWLockExclusive(m_lock);
+    }
+    FallbackSrwExclusiveGuard(const FallbackSrwExclusiveGuard&) = delete;
+    FallbackSrwExclusiveGuard& operator=(const FallbackSrwExclusiveGuard&) = delete;
+private:
+    SRWLOCK* m_lock;
+};
+
+struct FallbackSrwSharedGuard {
+    explicit FallbackSrwSharedGuard(SRWLOCK* lock) noexcept : m_lock(lock) {
+        if (m_lock) AcquireSRWLockShared(m_lock);
+    }
+    ~FallbackSrwSharedGuard() {
+        if (m_lock) ReleaseSRWLockShared(m_lock);
+    }
+    FallbackSrwSharedGuard(const FallbackSrwSharedGuard&) = delete;
+    FallbackSrwSharedGuard& operator=(const FallbackSrwSharedGuard&) = delete;
+private:
+    SRWLOCK* m_lock;
+};
+
+} // namespace
 
 static void logCallback(char* message, int iSize) {
     if (g_logDelegate) g_logDelegate(message, iSize);
@@ -57,7 +89,7 @@ static void initialize() {
     InitOnceExecuteOnce(&g_initOnce, initializeOnce, nullptr, nullptr);
 }
 
-static ID3D12Resource* createFallbackTexture(int displaySizeX, int displaySizeY, int format) {
+static ID3D12Resource* createFallbackTextureLocked(int displaySizeX, int displaySizeY, int format) {
     if (!g_d3d12Device || displaySizeX <= 0 || displaySizeY <= 0) return nullptr;
 
     D3D12_RESOURCE_DESC desc = {};
@@ -93,18 +125,23 @@ static ID3D12Resource* createFallbackTexture(int displaySizeX, int displaySizeY,
     return nullptr;
 }
 
-static void eraseFallbackTexture(int id) {
+static void eraseFallbackTextureLocked(int id) {
     auto it = g_fallbackTextures.find(id);
     if (it != g_fallbackTextures.end()) {
-        if (it->second) {
-            it->second->Release();
-        }
+        ID3D12Resource* res = it->second;
         g_fallbackTextures.erase(it);
+        if (res) {
+            try {
+                res->Release();
+            } catch (...) {
+                safeStderrWarn("[PDPerfPlugin] eraseFallbackTextureLocked: Release threw exception for id=%d\n", id);
+            }
+        }
         Logging::info("Released fallback texture id=%d", id);
     }
 }
 
-static void clearFallbackTextures() {
+static void clearFallbackTexturesLocked() {
     for (auto& [id, res] : g_fallbackTextures) {
         if (res) {
             try {
@@ -117,9 +154,15 @@ static void clearFallbackTextures() {
     g_fallbackTextures.clear();
 }
 
+static void eraseFallbackTexture(int id) {
+    FallbackSrwExclusiveGuard guard(&g_fallbackLock);
+    eraseFallbackTextureLocked(id);
+}
+
 static ID3D12Resource* storeFallbackTexture(int id, int displaySizeX, int displaySizeY, int format) {
-    eraseFallbackTexture(id);
-    ID3D12Resource* fallback = createFallbackTexture(displaySizeX, displaySizeY, format);
+    FallbackSrwExclusiveGuard guard(&g_fallbackLock);
+    eraseFallbackTextureLocked(id);
+    ID3D12Resource* fallback = createFallbackTextureLocked(displaySizeX, displaySizeY, format);
     if (fallback) {
         g_fallbackTextures[id] = fallback;
         Logging::info("Created fallback texture id=%d %dx%d", id, displaySizeX, displaySizeY);
@@ -131,26 +174,29 @@ bool __stdcall SetupDirectX(void* item, int graphicsAPI) {
     initialize();
     Logging::info("SetupDirectX(graphicsAPI=%d)", graphicsAPI);
 
-    clearFallbackTextures();
+    {
+        FallbackSrwExclusiveGuard guard(&g_fallbackLock);
+        clearFallbackTexturesLocked();
 
-    if (g_d3d12Device) {
-        try {
-            g_d3d12Device->Release();
-        } catch (...) {
-            safeStderrWarn("[PDPerfPlugin] SetupDirectX: Release threw exception\n");
+        if (g_d3d12Device) {
+            try {
+                g_d3d12Device->Release();
+            } catch (...) {
+                safeStderrWarn("[PDPerfPlugin] SetupDirectX: Release threw exception\n");
+            }
+            g_d3d12Device = nullptr;
         }
-        g_d3d12Device = nullptr;
-    }
 
-    if (graphicsAPI == 1 && item != nullptr) {
-        try {
-            ID3D12CommandQueue* queue = static_cast<ID3D12CommandQueue*>(item);
-            if (FAILED(queue->GetDevice(IID_PPV_ARGS(&g_d3d12Device))) || !g_d3d12Device) {
+        if (graphicsAPI == 1 && item != nullptr) {
+            try {
+                ID3D12CommandQueue* queue = static_cast<ID3D12CommandQueue*>(item);
+                if (FAILED(queue->GetDevice(IID_PPV_ARGS(&g_d3d12Device))) || !g_d3d12Device) {
+                    g_d3d12Device = nullptr;
+                }
+            } catch (...) {
+                safeStderrWarn("[PDPerfPlugin] SetupDirectX: GetDevice threw exception\n");
                 g_d3d12Device = nullptr;
             }
-        } catch (...) {
-            safeStderrWarn("[PDPerfPlugin] SetupDirectX: GetDevice threw exception\n");
-            g_d3d12Device = nullptr;
         }
     }
 
@@ -233,11 +279,10 @@ void __stdcall EvaluateUpscaler(UpscaleParams* params) {
     if (!params) { return; }
     initialize();
 
-    static bool s_loggedOnce = false;
-    if (!s_loggedOnce) {
+    static std::atomic<bool> s_loggedOnce{false};
+    if (!s_loggedOnce.exchange(true, std::memory_order_acq_rel)) {
         Logging::info("EvaluateUpscaler: fsr4=%p ready=%d",
                       (void*)g_fsr4, g_fsr4 ? (int)g_fsr4->isReady() : -1);
-        s_loggedOnce = true;
     }
 
     if (g_fsr4 && g_fsr4->isReady()) {
@@ -262,6 +307,7 @@ int __stdcall GetRenderWidth(int id) {
         const int w = g_fsr4->getRenderWidth(id);
         if (w > 0) return w;
     }
+    FallbackSrwSharedGuard guard(&g_fallbackLock);
     auto it = g_fallbackTextures.find(id);
     if (it != g_fallbackTextures.end() && it->second) {
         D3D12_RESOURCE_DESC desc = it->second->GetDesc();
@@ -279,6 +325,7 @@ int __stdcall GetRenderHeight(int id) {
         const int h = g_fsr4->getRenderHeight(id);
         if (h > 0) return h;
     }
+    FallbackSrwSharedGuard guard(&g_fallbackLock);
     auto it = g_fallbackTextures.find(id);
     if (it != g_fallbackTextures.end() && it->second) {
         D3D12_RESOURCE_DESC desc = it->second->GetDesc();
