@@ -3,9 +3,14 @@
 #include <Windows.h>
 #include <d3d12.h>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <vector>
 
 class MockD3D12Resource;
+class MockD3D12DescriptorHeap;
+class MockD3D12RootSignature;
+class MockD3D12PipelineState;
 class MockD3D12CommandAllocator;
 class MockD3D12GraphicsCommandList;
 class MockD3D12Fence;
@@ -19,16 +24,38 @@ public:
     inline static std::atomic<int> liveAllocators{0};
     inline static std::atomic<int> liveLists{0};
     inline static std::atomic<int> liveFences{0};
+    inline static std::atomic<int> liveDescriptorHeaps{0};
+    inline static std::atomic<int> liveRootSignatures{0};
+    inline static std::atomic<int> livePipelineStates{0};
 
     bool failCreateCommittedResource = false;
     bool failUavOnSrgbFormat         = false;
     bool failCreateCommandAllocator  = false;
     bool failCreateCommandList       = false;
     bool failCreateFence             = false;
+    bool failCreateDescriptorHeap    = false;
+    bool failCreateRootSignature     = false;
+    bool failCreatePipelineState     = false;
 
     D3D12_RESOURCE_DESC   lastCreatedDesc{};
     D3D12_RESOURCE_STATES lastInitialState = D3D12_RESOURCE_STATE_COMMON;
     LUID                  adapterLuid{0, 0};
+
+    // Device creation tracking hooks for Phase 2 lifecycle tests
+    MockD3D12Fence*               lastCreatedFence       = nullptr;
+    MockD3D12GraphicsCommandList* lastCreatedCommandList = nullptr;
+    std::vector<MockD3D12CommandAllocator*> createdAllocators;
+    MockD3D12RootSignature*       lastCreatedRootSignature  = nullptr;
+    MockD3D12PipelineState*       lastCreatedPipelineState  = nullptr;
+    MockD3D12DescriptorHeap*      lastCreatedDescriptorHeap = nullptr;
+
+    // SRV / UAV creation tracking for R/B swap format verification
+    D3D12_SHADER_RESOURCE_VIEW_DESC  lastSrvDesc{};
+    ID3D12Resource*                  lastSrvResource = nullptr;
+    int                              srvCreateCount  = 0;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC lastUavDesc{};
+    ID3D12Resource*                  lastUavResource = nullptr;
+    int                              uavCreateCount  = 0;
 
     MockD3D12Device() {
         liveDevices.fetch_add(1, std::memory_order_relaxed);
@@ -86,26 +113,46 @@ public:
         if (pp) *pp = nullptr;
         return E_NOTIMPL;
     }
-    HRESULT STDMETHODCALLTYPE CreateComputePipelineState(const D3D12_COMPUTE_PIPELINE_STATE_DESC*, REFIID, void** pp) override {
-        if (pp) *pp = nullptr;
-        return E_NOTIMPL;
-    }
+    inline HRESULT STDMETHODCALLTYPE CreateComputePipelineState(
+        const D3D12_COMPUTE_PIPELINE_STATE_DESC* pDesc, REFIID riid, void** ppPipelineState) override;
     inline HRESULT STDMETHODCALLTYPE CreateCommandList(
         UINT nodeMask, D3D12_COMMAND_LIST_TYPE type, ID3D12CommandAllocator* pCommandAllocator,
         ID3D12PipelineState* pInitialState, REFIID riid, void** ppCommandList) override;
     HRESULT STDMETHODCALLTYPE CheckFeatureSupport(D3D12_FEATURE, void*, UINT) override { return E_NOTIMPL; }
-    HRESULT STDMETHODCALLTYPE CreateDescriptorHeap(const D3D12_DESCRIPTOR_HEAP_DESC*, REFIID, void** pp) override {
-        if (pp) *pp = nullptr;
-        return E_NOTIMPL;
-    }
+    inline HRESULT STDMETHODCALLTYPE CreateDescriptorHeap(
+        const D3D12_DESCRIPTOR_HEAP_DESC* pDescriptorHeapDesc, REFIID riid, void** ppvHeap) override;
     UINT STDMETHODCALLTYPE GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE) override { return 32; }
-    HRESULT STDMETHODCALLTYPE CreateRootSignature(UINT, const void*, SIZE_T, REFIID, void** pp) override {
-        if (pp) *pp = nullptr;
-        return E_NOTIMPL;
-    }
+    inline HRESULT STDMETHODCALLTYPE CreateRootSignature(
+        UINT nodeMask, const void* pBlobWithRootSignature, SIZE_T blobLengthInBytes,
+        REFIID riid, void** ppvRootSignature) override;
     void STDMETHODCALLTYPE CreateConstantBufferView(const D3D12_CONSTANT_BUFFER_VIEW_DESC*, D3D12_CPU_DESCRIPTOR_HANDLE) override {}
-    void STDMETHODCALLTYPE CreateShaderResourceView(ID3D12Resource*, const D3D12_SHADER_RESOURCE_VIEW_DESC*, D3D12_CPU_DESCRIPTOR_HANDLE) override {}
-    void STDMETHODCALLTYPE CreateUnorderedAccessView(ID3D12Resource*, ID3D12Resource*, const D3D12_UNORDERED_ACCESS_VIEW_DESC*, D3D12_CPU_DESCRIPTOR_HANDLE) override {}
+    void STDMETHODCALLTYPE CreateShaderResourceView(
+        ID3D12Resource* pResource, const D3D12_SHADER_RESOURCE_VIEW_DESC* pDesc,
+        D3D12_CPU_DESCRIPTOR_HANDLE) override {
+        AcquireSRWLockExclusive(&m_lock);
+        lastSrvResource = pResource;
+        if (pDesc) {
+            lastSrvDesc = *pDesc;
+        } else {
+            lastSrvDesc = {};
+        }
+        ++srvCreateCount;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
+    void STDMETHODCALLTYPE CreateUnorderedAccessView(
+        ID3D12Resource* pResource, ID3D12Resource*,
+        const D3D12_UNORDERED_ACCESS_VIEW_DESC* pDesc,
+        D3D12_CPU_DESCRIPTOR_HANDLE) override {
+        AcquireSRWLockExclusive(&m_lock);
+        lastUavResource = pResource;
+        if (pDesc) {
+            lastUavDesc = *pDesc;
+        } else {
+            lastUavDesc = {};
+        }
+        ++uavCreateCount;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
     void STDMETHODCALLTYPE CreateRenderTargetView(ID3D12Resource*, const D3D12_RENDER_TARGET_VIEW_DESC*, D3D12_CPU_DESCRIPTOR_HANDLE) override {}
     void STDMETHODCALLTYPE CreateDepthStencilView(ID3D12Resource*, const D3D12_DEPTH_STENCIL_VIEW_DESC*, D3D12_CPU_DESCRIPTOR_HANDLE) override {}
     void STDMETHODCALLTYPE CreateSampler(const D3D12_SAMPLER_DESC*, D3D12_CPU_DESCRIPTOR_HANDLE) override {}
@@ -161,6 +208,7 @@ public:
 
 private:
     std::atomic<LONG> m_refCount{1};
+    mutable SRWLOCK   m_lock = SRWLOCK_INIT;
 };
 
 class MockD3D12Resource : public ID3D12Resource {
@@ -228,8 +276,180 @@ private:
     D3D12_RESOURCE_DESC m_desc;
 };
 
+class MockD3D12DescriptorHeap : public ID3D12DescriptorHeap {
+public:
+    MockD3D12DescriptorHeap(ID3D12Device* device, const D3D12_DESCRIPTOR_HEAP_DESC& desc)
+        : m_device(device), m_desc(desc) {
+        MockD3D12Device::liveDescriptorHeaps.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    virtual ~MockD3D12DescriptorHeap() {
+        MockD3D12Device::liveDescriptorHeaps.fetch_sub(1, std::memory_order_relaxed);
+    }
+
+    LONG refCount() const { return m_refCount.load(std::memory_order_acquire); }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override {
+        if (!ppvObject) return E_POINTER;
+        *ppvObject = nullptr;
+        if (riid == __uuidof(IUnknown) ||
+            riid == __uuidof(ID3D12Object) ||
+            riid == __uuidof(ID3D12DeviceChild) ||
+            riid == __uuidof(ID3D12Pageable) ||
+            riid == __uuidof(ID3D12DescriptorHeap)) {
+            *ppvObject = static_cast<ID3D12DescriptorHeap*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override {
+        return static_cast<ULONG>(m_refCount.fetch_add(1, std::memory_order_relaxed) + 1);
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override {
+        const ULONG next = static_cast<ULONG>(m_refCount.fetch_sub(1, std::memory_order_acq_rel) - 1);
+        if (next == 0) delete this;
+        return next;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT*, void*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT, const void*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID, const IUnknown*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void** ppvDevice) override {
+        if (!ppvDevice) return E_POINTER;
+        *ppvDevice = nullptr;
+        return m_device ? m_device->QueryInterface(riid, ppvDevice) : E_NOINTERFACE;
+    }
+
+    D3D12_DESCRIPTOR_HEAP_DESC STDMETHODCALLTYPE GetDesc() override { return m_desc; }
+    D3D12_CPU_DESCRIPTOR_HANDLE STDMETHODCALLTYPE GetCPUDescriptorHandleForHeapStart() override {
+        return D3D12_CPU_DESCRIPTOR_HANDLE{0x10000};
+    }
+    D3D12_GPU_DESCRIPTOR_HANDLE STDMETHODCALLTYPE GetGPUDescriptorHandleForHeapStart() override {
+        return D3D12_GPU_DESCRIPTOR_HANDLE{0x20000};
+    }
+
+private:
+    std::atomic<LONG> m_refCount{1};
+    ID3D12Device* m_device;
+    D3D12_DESCRIPTOR_HEAP_DESC m_desc;
+};
+
+class MockD3D12RootSignature : public ID3D12RootSignature {
+public:
+    explicit MockD3D12RootSignature(ID3D12Device* device) : m_device(device) {
+        MockD3D12Device::liveRootSignatures.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    virtual ~MockD3D12RootSignature() {
+        MockD3D12Device::liveRootSignatures.fetch_sub(1, std::memory_order_relaxed);
+    }
+
+    LONG refCount() const { return m_refCount.load(std::memory_order_acquire); }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override {
+        if (!ppvObject) return E_POINTER;
+        *ppvObject = nullptr;
+        if (riid == __uuidof(IUnknown) ||
+            riid == __uuidof(ID3D12Object) ||
+            riid == __uuidof(ID3D12DeviceChild) ||
+            riid == __uuidof(ID3D12RootSignature)) {
+            *ppvObject = static_cast<ID3D12RootSignature*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override {
+        return static_cast<ULONG>(m_refCount.fetch_add(1, std::memory_order_relaxed) + 1);
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override {
+        const ULONG next = static_cast<ULONG>(m_refCount.fetch_sub(1, std::memory_order_acq_rel) - 1);
+        if (next == 0) delete this;
+        return next;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT*, void*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT, const void*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID, const IUnknown*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void** ppvDevice) override {
+        if (!ppvDevice) return E_POINTER;
+        *ppvDevice = nullptr;
+        return m_device ? m_device->QueryInterface(riid, ppvDevice) : E_NOINTERFACE;
+    }
+
+private:
+    std::atomic<LONG> m_refCount{1};
+    ID3D12Device* m_device;
+};
+
+class MockD3D12PipelineState : public ID3D12PipelineState {
+public:
+    explicit MockD3D12PipelineState(ID3D12Device* device) : m_device(device) {
+        MockD3D12Device::livePipelineStates.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    virtual ~MockD3D12PipelineState() {
+        MockD3D12Device::livePipelineStates.fetch_sub(1, std::memory_order_relaxed);
+    }
+
+    LONG refCount() const { return m_refCount.load(std::memory_order_acquire); }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override {
+        if (!ppvObject) return E_POINTER;
+        *ppvObject = nullptr;
+        if (riid == __uuidof(IUnknown) ||
+            riid == __uuidof(ID3D12Object) ||
+            riid == __uuidof(ID3D12DeviceChild) ||
+            riid == __uuidof(ID3D12Pageable) ||
+            riid == __uuidof(ID3D12PipelineState)) {
+            *ppvObject = static_cast<ID3D12PipelineState*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override {
+        return static_cast<ULONG>(m_refCount.fetch_add(1, std::memory_order_relaxed) + 1);
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override {
+        const ULONG next = static_cast<ULONG>(m_refCount.fetch_sub(1, std::memory_order_acq_rel) - 1);
+        if (next == 0) delete this;
+        return next;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, UINT*, void*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, UINT, const void*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID, const IUnknown*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetName(LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void** ppvDevice) override {
+        if (!ppvDevice) return E_POINTER;
+        *ppvDevice = nullptr;
+        return m_device ? m_device->QueryInterface(riid, ppvDevice) : E_NOINTERFACE;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetCachedBlob(ID3DBlob** ppBlob) override {
+        if (ppBlob) *ppBlob = nullptr;
+        return E_NOTIMPL;
+    }
+
+private:
+    std::atomic<LONG> m_refCount{1};
+    ID3D12Device* m_device;
+};
+
 class MockD3D12CommandAllocator : public ID3D12CommandAllocator {
 public:
+    std::atomic<int> resetCount{0};
+
     explicit MockD3D12CommandAllocator(ID3D12Device* device) : m_device(device) {
         MockD3D12Device::liveAllocators.fetch_add(1, std::memory_order_relaxed);
     }
@@ -272,7 +492,10 @@ public:
         *ppvDevice = nullptr;
         return m_device ? m_device->QueryInterface(riid, ppvDevice) : E_NOINTERFACE;
     }
-    HRESULT STDMETHODCALLTYPE Reset() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE Reset() override {
+        resetCount.fetch_add(1, std::memory_order_relaxed);
+        return S_OK;
+    }
 
 private:
     std::atomic<LONG> m_refCount{1};
@@ -325,12 +548,47 @@ public:
     }
 
     D3D12_COMMAND_LIST_TYPE STDMETHODCALLTYPE GetType() override { return D3D12_COMMAND_LIST_TYPE_DIRECT; }
-    HRESULT STDMETHODCALLTYPE Close() override { return failClose ? E_FAIL : S_OK; }
-    HRESULT STDMETHODCALLTYPE Reset(ID3D12CommandAllocator*, ID3D12PipelineState*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE Close() override {
+        AcquireSRWLockExclusive(&m_lock);
+        if (failClose) {
+            ReleaseSRWLockExclusive(&m_lock);
+            return E_FAIL;
+        }
+        if (!isOpen) {
+            ++invalidCloseCount;
+            ReleaseSRWLockExclusive(&m_lock);
+            return E_FAIL;
+        }
+        ++closeCount;
+        isOpen = false;
+        ReleaseSRWLockExclusive(&m_lock);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Reset(ID3D12CommandAllocator* pAllocator, ID3D12PipelineState*) override {
+        AcquireSRWLockExclusive(&m_lock);
+        if (isOpen) {
+            ++invalidResetCount;
+            ReleaseSRWLockExclusive(&m_lock);
+            return E_INVALIDARG;
+        }
+        ++resetCount;
+        isOpen = true;
+        resetAllocators.push_back(pAllocator);
+        ReleaseSRWLockExclusive(&m_lock);
+        return S_OK;
+    }
     void STDMETHODCALLTYPE ClearState(ID3D12PipelineState*) override {}
     void STDMETHODCALLTYPE DrawInstanced(UINT, UINT, UINT, UINT) override {}
     void STDMETHODCALLTYPE DrawIndexedInstanced(UINT, UINT, UINT, INT, UINT) override {}
-    void STDMETHODCALLTYPE Dispatch(UINT, UINT, UINT) override {}
+    void STDMETHODCALLTYPE Dispatch(UINT, UINT, UINT) override {
+        AcquireSRWLockExclusive(&m_lock);
+        if (!isOpen) {
+            ++recordWhileClosedCount;
+        } else {
+            ++dispatchCount;
+        }
+        ReleaseSRWLockExclusive(&m_lock);
+    }
     void STDMETHODCALLTYPE CopyBufferRegion(ID3D12Resource*, UINT64, ID3D12Resource*, UINT64, UINT64) override {}
     void STDMETHODCALLTYPE CopyTextureRegion(const D3D12_TEXTURE_COPY_LOCATION*, UINT, UINT, UINT, const D3D12_TEXTURE_COPY_LOCATION*, const D3D12_BOX*) override {}
     void STDMETHODCALLTYPE CopyResource(ID3D12Resource*, ID3D12Resource*) override {}
@@ -341,13 +599,39 @@ public:
     void STDMETHODCALLTYPE RSSetScissorRects(UINT, const D3D12_RECT*) override {}
     void STDMETHODCALLTYPE OMSetBlendFactor(const FLOAT[4]) override {}
     void STDMETHODCALLTYPE OMSetStencilRef(UINT) override {}
-    void STDMETHODCALLTYPE SetPipelineState(ID3D12PipelineState*) override {}
-    void STDMETHODCALLTYPE ResourceBarrier(UINT, const D3D12_RESOURCE_BARRIER*) override {}
+    void STDMETHODCALLTYPE SetPipelineState(ID3D12PipelineState*) override {
+        AcquireSRWLockExclusive(&m_lock);
+        if (!isOpen) ++recordWhileClosedCount;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
+    void STDMETHODCALLTYPE ResourceBarrier(UINT NumBarriers, const D3D12_RESOURCE_BARRIER* pBarriers) override {
+        AcquireSRWLockExclusive(&m_lock);
+        if (!isOpen) {
+            ++recordWhileClosedCount;
+        } else if (pBarriers) {
+            for (UINT i = 0; i < NumBarriers; ++i) {
+                recordedBarriers.push_back(pBarriers[i]);
+            }
+        }
+        ReleaseSRWLockExclusive(&m_lock);
+    }
     void STDMETHODCALLTYPE ExecuteBundle(ID3D12GraphicsCommandList*) override {}
-    void STDMETHODCALLTYPE SetDescriptorHeaps(UINT, ID3D12DescriptorHeap* const*) override {}
-    void STDMETHODCALLTYPE SetComputeRootSignature(ID3D12RootSignature*) override {}
+    void STDMETHODCALLTYPE SetDescriptorHeaps(UINT, ID3D12DescriptorHeap* const*) override {
+        AcquireSRWLockExclusive(&m_lock);
+        if (!isOpen) ++recordWhileClosedCount;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
+    void STDMETHODCALLTYPE SetComputeRootSignature(ID3D12RootSignature*) override {
+        AcquireSRWLockExclusive(&m_lock);
+        if (!isOpen) ++recordWhileClosedCount;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
     void STDMETHODCALLTYPE SetGraphicsRootSignature(ID3D12RootSignature*) override {}
-    void STDMETHODCALLTYPE SetComputeRootDescriptorTable(UINT, D3D12_GPU_DESCRIPTOR_HANDLE) override {}
+    void STDMETHODCALLTYPE SetComputeRootDescriptorTable(UINT, D3D12_GPU_DESCRIPTOR_HANDLE) override {
+        AcquireSRWLockExclusive(&m_lock);
+        if (!isOpen) ++recordWhileClosedCount;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
     void STDMETHODCALLTYPE SetGraphicsRootDescriptorTable(UINT, D3D12_GPU_DESCRIPTOR_HANDLE) override {}
     void STDMETHODCALLTYPE SetComputeRoot32BitConstant(UINT, UINT, UINT) override {}
     void STDMETHODCALLTYPE SetGraphicsRoot32BitConstant(UINT, UINT, UINT) override {}
@@ -377,15 +661,35 @@ public:
     void STDMETHODCALLTYPE EndEvent() override {}
     void STDMETHODCALLTYPE ExecuteIndirect(ID3D12CommandSignature*, UINT, ID3D12Resource*, UINT64, ID3D12Resource*, UINT64) override {}
 
-    bool failClose = false;
+    bool failClose              = false;
+    bool isOpen                 = true;
+    int  resetCount             = 0;
+    int  closeCount             = 0;
+    int  dispatchCount          = 0;
+    int  invalidResetCount      = 0;
+    int  invalidCloseCount      = 0;
+    int  recordWhileClosedCount = 0;
+    std::vector<ID3D12CommandAllocator*> resetAllocators;
+    std::vector<D3D12_RESOURCE_BARRIER>  recordedBarriers;
 
 private:
     std::atomic<LONG> m_refCount{1};
-    ID3D12Device* m_device;
+    ID3D12Device*     m_device;
+    mutable SRWLOCK   m_lock = SRWLOCK_INIT;
 };
 
 class MockD3D12Fence : public ID3D12Fence {
 public:
+    struct Waiter {
+        UINT64 target;
+        HANDLE hEvent;
+    };
+
+    bool                 manualCompletion = false;
+    std::atomic<UINT64>  lastSignaledValue{0};
+    std::atomic<int>     setEventCallCount{0};
+    std::vector<UINT64>  waitTargets;
+
     MockD3D12Fence(ID3D12Device* device, UINT64 initialValue)
         : m_device(device), m_value(initialValue) {
         MockD3D12Device::liveFences.fetch_add(1, std::memory_order_relaxed);
@@ -430,24 +734,77 @@ public:
         return m_device ? m_device->QueryInterface(riid, ppvDevice) : E_NOINTERFACE;
     }
 
-    UINT64 STDMETHODCALLTYPE GetCompletedValue() override { return m_value.load(std::memory_order_acquire); }
-    HRESULT STDMETHODCALLTYPE SetEventOnCompletion(UINT64, HANDLE hEvent) override {
-        if (hEvent) SetEvent(hEvent);
-        return S_OK;
+    UINT64 STDMETHODCALLTYPE GetCompletedValue() override {
+        return m_value.load(std::memory_order_acquire);
     }
-    HRESULT STDMETHODCALLTYPE Signal(UINT64 Value) override {
-        m_value.store(Value, std::memory_order_release);
+
+    HRESULT STDMETHODCALLTYPE SetEventOnCompletion(UINT64 Value, HANDLE hEvent) override {
+        setEventCallCount.fetch_add(1, std::memory_order_relaxed);
+        AcquireSRWLockExclusive(&m_waitLock);
+        waitTargets.push_back(Value);
+        if (m_value.load(std::memory_order_acquire) >= Value) {
+            ReleaseSRWLockExclusive(&m_waitLock);
+            if (hEvent) SetEvent(hEvent);
+            return S_OK;
+        }
+        if (hEvent) {
+            m_waiters.push_back({ Value, hEvent });
+        }
+        ReleaseSRWLockExclusive(&m_waitLock);
         return S_OK;
     }
 
+    HRESULT STDMETHODCALLTYPE Signal(UINT64 Value) override {
+        lastSignaledValue.store(Value, std::memory_order_release);
+        completeUpTo(Value);
+        return S_OK;
+    }
+
+    void recordQueueSignal(UINT64 Value) {
+        lastSignaledValue.store(Value, std::memory_order_release);
+        if (!manualCompletion) {
+            completeUpTo(Value);
+        }
+    }
+
+    void completeUpTo(UINT64 value) {
+        std::vector<HANDLE> toSignal;
+        AcquireSRWLockExclusive(&m_waitLock);
+        const UINT64 prev = m_value.load(std::memory_order_relaxed);
+        if (value > prev) {
+            m_value.store(value, std::memory_order_release);
+        }
+        const UINT64 cur = m_value.load(std::memory_order_acquire);
+        for (size_t i = 0; i < m_waiters.size(); ) {
+            if (cur >= m_waiters[i].target) {
+                if (m_waiters[i].hEvent) {
+                    toSignal.push_back(m_waiters[i].hEvent);
+                }
+                m_waiters.erase(m_waiters.begin() + static_cast<ptrdiff_t>(i));
+            } else {
+                ++i;
+            }
+        }
+        ReleaseSRWLockExclusive(&m_waitLock);
+        for (HANDLE h : toSignal) {
+            SetEvent(h);
+        }
+    }
+
 private:
-    std::atomic<LONG> m_refCount{1};
-    ID3D12Device* m_device;
+    std::atomic<LONG>   m_refCount{1};
+    ID3D12Device*       m_device;
     std::atomic<UINT64> m_value{0};
+    mutable SRWLOCK     m_waitLock = SRWLOCK_INIT;
+    std::vector<Waiter> m_waiters;
 };
 
 class MockD3D12CommandQueue : public ID3D12CommandQueue {
 public:
+    std::atomic<int>            executeCount{0};
+    std::atomic<int>            signalCount{0};
+    std::vector<ID3D12CommandList*> executedLists;
+
     explicit MockD3D12CommandQueue(ID3D12Device* device) : m_device(device) {
         MockD3D12Device::liveQueues.fetch_add(1, std::memory_order_relaxed);
     }
@@ -495,12 +852,27 @@ public:
 
     void STDMETHODCALLTYPE UpdateTileMappings(ID3D12Resource*, UINT, const D3D12_TILED_RESOURCE_COORDINATE*, const D3D12_TILE_REGION_SIZE*, ID3D12Heap*, UINT, const D3D12_TILE_RANGE_FLAGS*, const UINT*, const UINT*, D3D12_TILE_MAPPING_FLAGS) override {}
     void STDMETHODCALLTYPE CopyTileMappings(ID3D12Resource*, const D3D12_TILED_RESOURCE_COORDINATE*, ID3D12Resource*, const D3D12_TILED_RESOURCE_COORDINATE*, const D3D12_TILE_REGION_SIZE*, D3D12_TILE_MAPPING_FLAGS) override {}
-    void STDMETHODCALLTYPE ExecuteCommandLists(UINT, ID3D12CommandList* const*) override {}
+    void STDMETHODCALLTYPE ExecuteCommandLists(UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists) override {
+        executeCount.fetch_add(1, std::memory_order_relaxed);
+        AcquireSRWLockExclusive(&m_lock);
+        if (ppCommandLists) {
+            for (UINT i = 0; i < NumCommandLists; ++i) {
+                executedLists.push_back(ppCommandLists[i]);
+            }
+        }
+        ReleaseSRWLockExclusive(&m_lock);
+    }
     void STDMETHODCALLTYPE SetMarker(UINT, const void*, UINT) override {}
     void STDMETHODCALLTYPE BeginEvent(UINT, const void*, UINT) override {}
     void STDMETHODCALLTYPE EndEvent() override {}
     HRESULT STDMETHODCALLTYPE Signal(ID3D12Fence* pFence, UINT64 Value) override {
-        return pFence ? pFence->Signal(Value) : S_OK;
+        signalCount.fetch_add(1, std::memory_order_relaxed);
+        if (!pFence) return S_OK;
+        if (auto* mockFence = dynamic_cast<MockD3D12Fence*>(pFence)) {
+            mockFence->recordQueueSignal(Value);
+            return S_OK;
+        }
+        return pFence->Signal(Value);
     }
     HRESULT STDMETHODCALLTYPE Wait(ID3D12Fence*, UINT64) override { return S_OK; }
     HRESULT STDMETHODCALLTYPE GetTimestampFrequency(UINT64* pFrequency) override {
@@ -520,7 +892,8 @@ public:
 
 private:
     std::atomic<LONG> m_refCount{1};
-    ID3D12Device* m_device;
+    ID3D12Device*     m_device;
+    mutable SRWLOCK   m_lock = SRWLOCK_INIT;
 };
 
 inline HRESULT STDMETHODCALLTYPE MockD3D12Device::CreateCommandAllocator(
@@ -530,6 +903,27 @@ inline HRESULT STDMETHODCALLTYPE MockD3D12Device::CreateCommandAllocator(
     if (failCreateCommandAllocator) return E_FAIL;
     auto* obj = new MockD3D12CommandAllocator(this);
     const HRESULT hr = obj->QueryInterface(riid, ppCommandAllocator);
+    if (SUCCEEDED(hr)) {
+        AcquireSRWLockExclusive(&m_lock);
+        createdAllocators.push_back(obj);
+        ReleaseSRWLockExclusive(&m_lock);
+    }
+    obj->Release();
+    return hr;
+}
+
+inline HRESULT STDMETHODCALLTYPE MockD3D12Device::CreateComputePipelineState(
+    const D3D12_COMPUTE_PIPELINE_STATE_DESC*, REFIID riid, void** ppPipelineState) {
+    if (!ppPipelineState) return E_POINTER;
+    *ppPipelineState = nullptr;
+    if (failCreatePipelineState) return E_FAIL;
+    auto* obj = new MockD3D12PipelineState(this);
+    const HRESULT hr = obj->QueryInterface(riid, ppPipelineState);
+    if (SUCCEEDED(hr)) {
+        AcquireSRWLockExclusive(&m_lock);
+        lastCreatedPipelineState = obj;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
     obj->Release();
     return hr;
 }
@@ -542,6 +936,45 @@ inline HRESULT STDMETHODCALLTYPE MockD3D12Device::CreateCommandList(
     if (failCreateCommandList) return E_FAIL;
     auto* obj = new MockD3D12GraphicsCommandList(this);
     const HRESULT hr = obj->QueryInterface(riid, ppCommandList);
+    if (SUCCEEDED(hr)) {
+        AcquireSRWLockExclusive(&m_lock);
+        lastCreatedCommandList = obj;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
+    obj->Release();
+    return hr;
+}
+
+inline HRESULT STDMETHODCALLTYPE MockD3D12Device::CreateDescriptorHeap(
+    const D3D12_DESCRIPTOR_HEAP_DESC* pDescriptorHeapDesc, REFIID riid, void** ppvHeap) {
+    if (!ppvHeap) return E_POINTER;
+    *ppvHeap = nullptr;
+    if (failCreateDescriptorHeap) return E_FAIL;
+    const D3D12_DESCRIPTOR_HEAP_DESC desc =
+        pDescriptorHeapDesc ? *pDescriptorHeapDesc : D3D12_DESCRIPTOR_HEAP_DESC{};
+    auto* obj = new MockD3D12DescriptorHeap(this, desc);
+    const HRESULT hr = obj->QueryInterface(riid, ppvHeap);
+    if (SUCCEEDED(hr)) {
+        AcquireSRWLockExclusive(&m_lock);
+        lastCreatedDescriptorHeap = obj;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
+    obj->Release();
+    return hr;
+}
+
+inline HRESULT STDMETHODCALLTYPE MockD3D12Device::CreateRootSignature(
+    UINT, const void*, SIZE_T, REFIID riid, void** ppvRootSignature) {
+    if (!ppvRootSignature) return E_POINTER;
+    *ppvRootSignature = nullptr;
+    if (failCreateRootSignature) return E_FAIL;
+    auto* obj = new MockD3D12RootSignature(this);
+    const HRESULT hr = obj->QueryInterface(riid, ppvRootSignature);
+    if (SUCCEEDED(hr)) {
+        AcquireSRWLockExclusive(&m_lock);
+        lastCreatedRootSignature = obj;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
     obj->Release();
     return hr;
 }
@@ -560,8 +993,12 @@ inline HRESULT STDMETHODCALLTYPE MockD3D12Device::CreateCommittedResource(
         return E_INVALIDARG;
     }
     const D3D12_RESOURCE_DESC desc = pDesc ? *pDesc : D3D12_RESOURCE_DESC{};
-    lastCreatedDesc  = desc;
-    lastInitialState = InitialResourceState;
+    {
+        AcquireSRWLockExclusive(&m_lock);
+        lastCreatedDesc  = desc;
+        lastInitialState = InitialResourceState;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
     auto* obj = new MockD3D12Resource(this, desc);
     const HRESULT hr = obj->QueryInterface(riidResource, ppvResource);
     obj->Release();
@@ -575,6 +1012,11 @@ inline HRESULT STDMETHODCALLTYPE MockD3D12Device::CreateFence(
     if (failCreateFence) return E_FAIL;
     auto* obj = new MockD3D12Fence(this, InitialValue);
     const HRESULT hr = obj->QueryInterface(riid, ppFence);
+    if (SUCCEEDED(hr)) {
+        AcquireSRWLockExclusive(&m_lock);
+        lastCreatedFence = obj;
+        ReleaseSRWLockExclusive(&m_lock);
+    }
     obj->Release();
     return hr;
 }
