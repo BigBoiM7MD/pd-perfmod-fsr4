@@ -266,28 +266,70 @@ void __stdcall SimpleEvaluate(int id, void* color, void* motionVector, void* dep
                                void* destination, int renderSizeX, int renderSizeY, float sharpness,
                                float jitterOffsetX, float jitterOffsetY, int motionScaleX, int motionScaleY,
                                bool reset, float nearPlane, float farPlane, float verticalFOV, bool execute) {
-    initialize();
-    if (g_fsr4 && g_fsr4->isReady()) {
-        g_fsr4->evaluate(id, color, motionVector, depth, destination, renderSizeX, renderSizeY,
-                          sharpness, jitterOffsetX, jitterOffsetY, (float)motionScaleX, (float)motionScaleY,
-                          reset, nearPlane, farPlane, verticalFOV, execute, nullptr);
-        return;
+    try {
+        initialize();
+        (void)mask;
+        if (!color || !motionVector || !depth) {
+            static std::atomic<long long> s_lastInvalid{0};
+            const long long now = static_cast<long long>(GetTickCount64());
+            long long prev = s_lastInvalid.load(std::memory_order_relaxed);
+            if (now - prev > 2000 && s_lastInvalid.compare_exchange_strong(prev, now, std::memory_order_acq_rel)) {
+                Logging::error("SimpleEvaluate: invalid null texture (id=%d color=%p mv=%p depth=%p)",
+                               id, color, motionVector, depth);
+            }
+            return;
+        }
+        if (g_fsr4 && g_fsr4->isReady()) {
+            g_fsr4->evaluate(id, color, motionVector, depth, destination, renderSizeX, renderSizeY,
+                              sharpness, jitterOffsetX, jitterOffsetY, (float)motionScaleX, (float)motionScaleY,
+                              reset, nearPlane, farPlane, verticalFOV, execute, nullptr);
+            return;
+        }
+    } catch (const std::exception& e) {
+        Logging::error("SimpleEvaluate threw: %s", e.what());
+    } catch (...) {
+        Logging::error("SimpleEvaluate threw unknown exception (SEH/AV?)");
     }
 }
 
 void __stdcall EvaluateUpscaler(UpscaleParams* params) {
-    if (!params) { return; }
-    initialize();
+    try {
+        initialize();
+        if (!params) {
+            static std::atomic<long long> s_lastNullParams{0};
+            const long long now = static_cast<long long>(GetTickCount64());
+            long long prev = s_lastNullParams.load(std::memory_order_relaxed);
+            if (now - prev > 2000 && s_lastNullParams.compare_exchange_strong(prev, now, std::memory_order_acq_rel)) {
+                Logging::error("EvaluateUpscaler: NULL params");
+            }
+            return;
+        }
 
-    static std::atomic<bool> s_loggedOnce{false};
-    if (!s_loggedOnce.exchange(true, std::memory_order_acq_rel)) {
-        Logging::info("EvaluateUpscaler: fsr4=%p ready=%d",
-                      (void*)g_fsr4, g_fsr4 ? (int)g_fsr4->isReady() : -1);
-    }
+        static std::atomic<bool> s_loggedOnce{false};
+        if (!s_loggedOnce.exchange(true, std::memory_order_acq_rel)) {
+            Logging::info("EvaluateUpscaler: fsr4=%p ready=%d",
+                          (void*)g_fsr4, g_fsr4 ? (int)g_fsr4->isReady() : -1);
+        }
 
-    if (g_fsr4 && g_fsr4->isReady()) {
-        g_fsr4->evaluate(params);
-        return;
+        if (!params->color || !params->motionVector || !params->depth) {
+            static std::atomic<long long> s_lastInvalid{0};
+            const long long now = static_cast<long long>(GetTickCount64());
+            long long prev = s_lastInvalid.load(std::memory_order_relaxed);
+            if (now - prev > 2000 && s_lastInvalid.compare_exchange_strong(prev, now, std::memory_order_acq_rel)) {
+                Logging::error("EvaluateUpscaler: invalid null texture (id=%d color=%p mv=%p depth=%p)",
+                               params->id, params->color, params->motionVector, params->depth);
+            }
+            return;
+        }
+
+        if (g_fsr4 && g_fsr4->isReady()) {
+            g_fsr4->evaluate(params);
+            return;
+        }
+    } catch (const std::exception& e) {
+        Logging::error("EvaluateUpscaler threw: %s", e.what());
+    } catch (...) {
+        Logging::error("EvaluateUpscaler threw unknown exception (SEH/AV?)");
     }
 }
 

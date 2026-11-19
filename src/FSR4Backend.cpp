@@ -1587,15 +1587,6 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             }
             return;
         }
-        if (!execute) {
-            static long long s_last = 0;
-            long long now = (long long)GetTickCount64();
-            if (now - s_last > 2000) {
-                Logging::info("FSR4Backend::evaluate(id=%d): skipping (execute=false)", id);
-                s_last = now;
-            }
-            return;
-        }
 
         auto& ctx = it->second;
 
@@ -1785,36 +1776,40 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             }
         }
 
-        if (!cmdList && effectiveCmdList && m_impl->commandQueue) {
-            ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
-            const HRESULT closeHr = cl->Close();
-            m_impl->cmdListOpen = false;
-            if (FAILED(closeHr)) {
-                Logging::error("FSR4Backend: cmdList->Close() failed hr=%08x", closeHr);
-                return;
-            }
+        if (!cmdList) {
+            if (execute) {
+                if (effectiveCmdList && m_impl->commandQueue) {
+                    ID3D12GraphicsCommandList* cl = (ID3D12GraphicsCommandList*)effectiveCmdList;
+                    const HRESULT closeHr = cl->Close();
+                    m_impl->cmdListOpen = false;
+                    if (FAILED(closeHr)) {
+                        Logging::error("FSR4Backend: cmdList->Close() failed hr=%08x", closeHr);
+                        return;
+                    }
 
-            ID3D12CommandList* lists[] = { cl };
-            m_impl->commandQueue->ExecuteCommandLists(1, lists);
-            // Signal the fence so the slot allocator isn't reset while this work is still
-            // in flight (needed for allocator lifetime), rotating across the 3-slot ring
-            // instead of blocking every frame. REFramework copies our output on the SAME
-            // command queue (copier.copy -> backbuffer), so in-order queue execution
-            // already guarantees the upscale finishes before the copy reads it.
-            if (m_impl->fence) {
-                const uint64_t nextFence = m_impl->fenceValue + 1;
-                const HRESULT sigHr = m_impl->commandQueue->Signal(m_impl->fence, nextFence);
-                if (SUCCEEDED(sigHr)) {
-                    m_impl->fenceValue = nextFence;
-                    m_impl->slotFenceValues[m_impl->currentSlot] = nextFence;
+                    ID3D12CommandList* lists[] = { cl };
+                    m_impl->commandQueue->ExecuteCommandLists(1, lists);
+                    // Signal the fence so the slot allocator isn't reset while this work is still
+                    // in flight (needed for allocator lifetime), rotating across the 3-slot ring
+                    // instead of blocking every frame. REFramework copies our output on the SAME
+                    // command queue (copier.copy -> backbuffer), so in-order queue execution
+                    // already guarantees the upscale finishes before the copy reads it.
+                    if (m_impl->fence) {
+                        const uint64_t nextFence = m_impl->fenceValue + 1;
+                        const HRESULT sigHr = m_impl->commandQueue->Signal(m_impl->fence, nextFence);
+                        if (SUCCEEDED(sigHr)) {
+                            m_impl->fenceValue = nextFence;
+                            m_impl->slotFenceValues[m_impl->currentSlot] = nextFence;
+                        } else {
+                            Logging::error("FSR4Backend: commandQueue->Signal(%llu) failed hr=%08x",
+                                           (unsigned long long)nextFence, sigHr);
+                        }
+                    }
+                    m_impl->currentSlot = (m_impl->currentSlot + 1) % Impl::kNumCmdSlots;
                 } else {
-                    Logging::error("FSR4Backend: commandQueue->Signal(%llu) failed hr=%08x",
-                                   (unsigned long long)nextFence, sigHr);
+                    Impl::closeInternalCmdListIfOpen(m_impl);
                 }
             }
-            m_impl->currentSlot = (m_impl->currentSlot + 1) % Impl::kNumCmdSlots;
-        } else if (!cmdList) {
-            Impl::closeInternalCmdListIfOpen(m_impl);
         }
 
         // --- True per-call CPU timing (FSR4_DIAGNOSTICS only; scoped entry->here) --
