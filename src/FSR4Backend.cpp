@@ -501,6 +501,10 @@ struct FSR4Backend::Impl {
     ID3D12RootSignature* rbSwapRootSig = nullptr;
     ID3D12PipelineState* rbSwapPso     = nullptr;
 
+    // Per-instance one-time diagnostic log flags (reset in cleanupSetupState).
+    bool inputSizesLogged    = false;
+    bool rbSwapSkippedWarned = false;
+
     static bool waitForFenceValue(Impl* impl, uint64_t targetValue) {
         if (!impl || !impl->fence || !impl->fenceEvent || targetValue == 0) {
             return true;
@@ -636,8 +640,10 @@ struct FSR4Backend::Impl {
             }
         }
 
-        impl->available   = false;
-        impl->graphicsAPI = 0;
+        impl->available           = false;
+        impl->graphicsAPI         = 0;
+        impl->inputSizesLogged    = false;
+        impl->rbSwapSkippedWarned = false;
     }
 
     static bool selectFsrVersionLocked(Impl* impl) {
@@ -1781,12 +1787,12 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             if (!cmdList) {
                 Impl::closeInternalCmdListIfOpen(m_impl);
             }
-            static long long s_last = 0;
-            long long now = (long long)GetTickCount64();
-            if (now - s_last > 2000) {
+            static std::atomic<long long> s_last{0};
+            const long long now = static_cast<long long>(GetTickCount64());
+            long long prev = s_last.load(std::memory_order_relaxed);
+            if (now - prev > 2000 && s_last.compare_exchange_strong(prev, now, std::memory_order_acq_rel)) {
                 Logging::warn("FSR4Backend::evaluate(id=%d): no context/dispatch fn (map size=%zu, ffxDispatch=%p)",
                               id, m_impl->contexts.size(), (void*)m_impl->ffxDispatchFn);
-                s_last = now;
             }
             return;
         }
@@ -1800,12 +1806,12 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             if (!cmdList) {
                 Impl::closeInternalCmdListIfOpen(m_impl);
             }
-            static long long s_lastInvalid = 0;
-            long long now = (long long)GetTickCount64();
-            if (now - s_lastInvalid > 2000) {
+            static std::atomic<long long> s_lastInvalid{0};
+            const long long now = static_cast<long long>(GetTickCount64());
+            long long prev = s_lastInvalid.load(std::memory_order_relaxed);
+            if (now - prev > 2000 && s_lastInvalid.compare_exchange_strong(prev, now, std::memory_order_acq_rel)) {
                 Logging::warn("FSR4Backend::evaluate(id=%d): invalid inputs (color=%p depth=%p mv=%p dst=%p)",
                               id, color, depth, motionVector, effectiveDst);
-                s_lastInvalid = now;
             }
             return;
         }
@@ -1947,8 +1953,8 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             // into ctx.outputTexture; the swap source would be wrong. Swap is
             // skipped and colors WILL stay swapped. Log once so a test that shows
             // "still swapped" is explained instead of mysterious.
-            static bool s_warn = false;
-            if (!s_warn) { s_warn = true;
+            if (!m_impl->rbSwapSkippedWarned) {
+                m_impl->rbSwapSkippedWarned = true;
                 Logging::warn("FSR4Backend: R/B swap SKIPPED - evaluate() got a non-null "
                               "destination (fsr wrote elsewhere); output texture unchanged -> "
                               "colors will still be R/B swapped. REFramework normally passes null.");
@@ -1962,11 +1968,10 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
 
         // Rate-limited success log + one-time input dimensions (aliasing debug).
         {
-            static long long s_last = 0;
-            static bool s_sizesLogged = false;
-            long long now = (long long)GetTickCount64();
-            if (!s_sizesLogged) {
-                s_sizesLogged = true;
+            static std::atomic<long long> s_last{0};
+            const long long now = static_cast<long long>(GetTickCount64());
+            if (!m_impl->inputSizesLogged) {
+                m_impl->inputSizesLogged = true;
                 D3D12_RESOURCE_DESC cd = ((ID3D12Resource*)color)->GetDesc();
                 D3D12_RESOURCE_DESC dd2 = ((ID3D12Resource*)depth)->GetDesc();
                 D3D12_RESOURCE_DESC md = ((ID3D12Resource*)motionVector)->GetDesc();
@@ -1976,8 +1981,8 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
                               (unsigned)md.Width, md.Height, (int)md.Format,
                               ctx.displaySizeX, ctx.displaySizeY, ctx.format);
             }
-            if (now - s_last > 2000) {
-                s_last = now;
+            long long prev = s_last.load(std::memory_order_relaxed);
+            if (now - prev > 2000 && s_last.compare_exchange_strong(prev, now, std::memory_order_acq_rel)) {
                 Logging::info("FSR4Backend: ffxDispatch SUCCEEDED id=%d (out=%p fmt=%d %ux%u) reset=%d jitter=(%.4f,%.4f) mvScale=(%.4f,%.4f) rcas=%s sharp=%.3f",
                               id, effectiveDst, ctx.format, ctx.displaySizeX, ctx.displaySizeY,
                               (int)reset, jitterOffsetX, jitterOffsetY,
