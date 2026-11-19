@@ -26,6 +26,7 @@ public:
         float nearPlane, float farPlane, float verticalFOV,
         bool execute, void* cmdList);
     void evaluate(UpscaleParams* params);
+    void discardOpenCommandList();
     void release(int id);
 
     void setMotionScaleX(int id, float scale);

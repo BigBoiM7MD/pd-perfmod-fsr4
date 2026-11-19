@@ -270,6 +270,9 @@ void __stdcall SimpleEvaluate(int id, void* color, void* motionVector, void* dep
         initialize();
         (void)mask;
         if (!color || !motionVector || !depth) {
+            if (g_fsr4) {
+                g_fsr4->discardOpenCommandList();
+            }
             static std::atomic<long long> s_lastInvalid{0};
             const long long now = static_cast<long long>(GetTickCount64());
             long long prev = s_lastInvalid.load(std::memory_order_relaxed);
@@ -312,6 +315,9 @@ void __stdcall EvaluateUpscaler(UpscaleParams* params) {
         }
 
         if (!params->color || !params->motionVector || !params->depth) {
+            if (g_fsr4 && !params->cmdList) {
+                g_fsr4->discardOpenCommandList();
+            }
             static std::atomic<long long> s_lastInvalid{0};
             const long long now = static_cast<long long>(GetTickCount64());
             long long prev = s_lastInvalid.load(std::memory_order_relaxed);

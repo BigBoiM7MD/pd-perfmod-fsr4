@@ -1992,6 +1992,16 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
     }
 }
 
+void FSR4Backend::discardOpenCommandList() {
+    if (!m_impl) return;
+    SrwExclusiveGuard lockGuard(&m_impl->lock);
+    try {
+        Impl::closeInternalCmdListIfOpen(m_impl);
+    } catch (...) {
+        Logging::warn("FSR4Backend: discardOpenCommandList threw exception");
+    }
+}
+
 void FSR4Backend::release(int id) {
     if (!m_impl) return;
     SrwExclusiveGuard lockGuard(&m_impl->lock);
