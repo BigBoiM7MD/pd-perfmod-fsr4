@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-- Picks the **best FSR version your GPU supports** (FSR 4 on RX 7000 and higher, FSR 3.1 on older cards).
+- Picks the **best FSR version your GPU supports** (FSR 4 on RDNA4 / RX 9000 series, FSR 3.1 on older FSR-capable cards).
 - **Correct colors on Linux/Proton** — we fix the red/blue swap automatically.
 - **HDR is preserved** when the game runs in HDR.
 - Open source, drop-in `PDPerfPlugin.dll`. No closed Nexus-only binaries.
@@ -20,7 +20,9 @@ FidelityFX (FFX) runtime. At load it:
 - **Auto-selects the newest FSR version your GPU actually supports** — FSR 4
   (ML upscaler) on RDNA4, or FSR 3.1 automatically on older FSR-capable GPUs.
 - **Logs the truthful running version + your GPU** — no hardcoded constants.
-  First log line reads e.g. `[INFO] FSR version: 4.1.1  |  GPU: AMD Radeon RX 9070 XT`.
+  Logs `[INFO] pd-perfmod-fsr4 loaded (mode: NON-VERBOSE)` on load, followed by
+  e.g. `[INFO] FSR version: 4.1.1  |  GPU: AMD Radeon RX 9070 XT` once D3D12
+  initializes.
 - **Handles Linux/Proton color and HDR quirks** so the image looks right
   (see [Linux / Proton](#linux--proton-colors--hdr)).
 - Writes a **live, tail-able log** you can watch while the game runs.
@@ -33,7 +35,7 @@ FidelityFX (FFX) runtime. At load it:
 2. Copy **all** files from the package into the game folder (next to
    `dinput8.dll` / REFramework's `reframework/` dir). The two `amd_fidelityfx_*`
    DLLs must sit next to the game `.exe`.
-3. Launch the game. The first log line shows the FSR version + GPU.
+3. Launch the game. The startup log shows the plugin mode and the active FSR version + GPU.
 
 **Details**
 
@@ -115,7 +117,7 @@ Change any setting and restart the game to apply.
 
 ## Linux / Proton (colors + HDR)
 
-FSR4 (via the AMD loader) **runs on newer Proton / Proton-GE with DXVK** — it is
+FSR4 (via the AMD loader) **runs on newer Proton / Proton-GE with vkd3d-proton** — it is
 not Windows-only.
 
 - **Colors are correct out of the box.** Under Proton the game's present
