@@ -447,8 +447,8 @@ static bool runEvaluationAndVrMultipassCase(const std::wstring& srcPluginDll,
 static bool runDlaaAndMultiVersionFallbackCase(const std::wstring& srcPluginDll,
                                                const std::wstring& srcMockLoaderDll,
                                                const std::wstring& tempRoot) {
-    printf("[Case 2] Testing FIX-10/FIX-13 DLAA dynamic resolution and sequential multi-version fallback...\n");
-    const std::wstring dir = tempRoot + L"\\case2_dlaa_versions";
+    printf("[Case 2] Testing preset model selection (DynamicResolution=0 default), Native Res recreate, DynamicResolution=1 DRS, & multi-version fallback...\n");
+    const std::wstring dir = tempRoot + L"\\case2_presets_drs_versions";
     deleteTreeW(dir);
     TEST_CHECK_BOOL(CreateDirectoryW(dir.c_str(), nullptr) != FALSE);
 
@@ -471,18 +471,21 @@ static bool runDlaaAndMultiVersionFallbackCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(api.SetupDirectX(queue, 1) == true);
     TEST_CHECK_BOOL(MockFfxInspector::reset());
 
+    // 2a. Quality preset (qualityLevel=2 -> 1.5x, 1280x720) with default DynamicResolution=0:
+    //     FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION MUST be OFF and maxRenderSize == 1280x720
+    //     so FSR 4 picks Model 1 (Quality) instead of Model 4 (DRS).
     InitParams ip{};
     ip.id            = 1;
     ip.upscaleMethod = 1;
-    ip.qualityLevel  = 3; // DLAA
+    ip.qualityLevel  = 2; // Quality (1.5x)
     ip.displaySizeX  = 1920;
     ip.displaySizeY  = 1080;
     ip.format        = DXGI_FORMAT_R8G8B8A8_UNORM;
 
     void* outTex = api.InitUpscaler(&ip);
     TEST_CHECK_BOOL(outTex != nullptr);
-    TEST_CHECK_BOOL(api.GetRenderWidth(1) == 1920);
-    TEST_CHECK_BOOL(api.GetRenderHeight(1) == 1080);
+    TEST_CHECK_BOOL(api.GetRenderWidth(1) == 1280);
+    TEST_CHECK_BOOL(api.GetRenderHeight(1) == 720);
 
     MockFfxStats stats{};
     TEST_CHECK_BOOL(MockFfxInspector::getStats(stats));
@@ -496,43 +499,73 @@ static bool runDlaaAndMultiVersionFallbackCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(MockFfxInspector::getCreateRecord(1, cr1));
     TEST_CHECK_BOOL(cr0.overrideVersionId == 0x00401001ULL && cr0.resultCode == 1);
     TEST_CHECK_BOOL(cr1.overrideVersionId == 0x00301005ULL && cr1.resultCode == 0);
-    TEST_CHECK_BOOL((cr1.flags & kMockFfxUpscaleEnableDynamicResolution) != 0);
-    TEST_CHECK_BOOL(cr1.maxRenderWidth == 1920 && cr1.maxRenderHeight == 1080);
+    TEST_CHECK_BOOL((cr1.flags & kMockFfxUpscaleEnableDynamicResolution) == 0);
+    TEST_CHECK_BOOL(cr1.maxRenderWidth == 1280 && cr1.maxRenderHeight == 720);
     TEST_CHECK_BOOL(cr1.maxUpscaleWidth == 1920 && cr1.maxUpscaleHeight == 1080);
+
+    // 2b. Ultra Performance preset (qualityLevel=3 -> 3.0x, 640x360 per REFramework)
+    InitParams ipUp = ip;
+    ipUp.id           = 3;
+    ipUp.qualityLevel = 3; // Ultra Performance (3.0x)
+    void* upTex = api.InitUpscaler(&ipUp);
+    TEST_CHECK_BOOL(upTex != nullptr);
+    TEST_CHECK_BOOL(api.GetRenderWidth(3) == 640);
+    TEST_CHECK_BOOL(api.GetRenderHeight(3) == 360);
+    MockFfxCreateRecord crUp{};
+    TEST_CHECK_BOOL(MockFfxInspector::getCreateRecord(3, crUp));
+    TEST_CHECK_BOOL((crUp.flags & kMockFfxUpscaleEnableDynamicResolution) == 0);
+    TEST_CHECK_BOOL(crUp.maxRenderWidth == 640 && crUp.maxRenderHeight == 360);
 
     auto* colorRes = makeTex2D(dev, 1920, 1080, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
     auto* depthRes = makeTex2D(dev, 1920, 1080, DXGI_FORMAT_D32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
     auto* mvRes    = makeTex2D(dev, 1920, 1080, DXGI_FORMAT_R16G16_FLOAT, D3D12_RESOURCE_FLAG_NONE);
 
-    // Dynamic resolution: REFramework Native Res DLAA passes displaySize - 1
+    // 2c. REFramework "Use Native Res (DLAA)" passes displaySize - 1 (1919x1079) on Quality context.
+    //     With DynamicResolution=0, evaluate() recreates ffxCtx ONCE with maxRenderSize == 1920x1080
+    //     (still without DRS flag -> Model 0 Native AA) and forces dd.reset = true on transition.
+    TEST_CHECK_BOOL(MockFfxInspector::reset());
     UpscaleParams epNativeMinus1 = makeEvalParams(1, colorRes, mvRes, depthRes, nullptr, 1919.0f, 1079.0f, true, nullptr);
     api.EvaluateUpscaler(&epNativeMinus1);
+
+    TEST_CHECK_BOOL(MockFfxInspector::getStats(stats));
+    TEST_CHECK_BOOL(stats.destroyCount == 1);
+    TEST_CHECK_BOOL(stats.createSuccessCount == 1);
+    MockFfxCreateRecord crNative{};
+    TEST_CHECK_BOOL(MockFfxInspector::getCreateRecord(1, crNative));
+    TEST_CHECK_BOOL((crNative.flags & kMockFfxUpscaleEnableDynamicResolution) == 0);
+    TEST_CHECK_BOOL(crNative.maxRenderWidth == 1920 && crNative.maxRenderHeight == 1080);
 
     MockFfxDispatchDescUpscale dd0{};
     TEST_CHECK_BOOL(MockFfxInspector::getDispatchRecord(0, dd0));
     TEST_CHECK_BOOL(dd0.renderSize.width == 1919 && dd0.renderSize.height == 1079);
     TEST_CHECK_BOOL(dd0.upscaleSize.width == 1920 && dd0.upscaleSize.height == 1080);
+    TEST_CHECK_BOOL(dd0.reset == true);
 
-    // renderSize == 0 falls back to context renderWidth/renderHeight (1920x1080 for DLAA)
-    UpscaleParams epZero = makeEvalParams(1, colorRes, mvRes, depthRes, nullptr, 0.0f, 0.0f, true, nullptr);
-    api.EvaluateUpscaler(&epZero);
-
+    // Second Native Res frame (1919x1079) must NOT recreate ffxCtx and keeps reset == false.
+    api.EvaluateUpscaler(&epNativeMinus1);
+    TEST_CHECK_BOOL(MockFfxInspector::getStats(stats));
+    TEST_CHECK_BOOL(stats.destroyCount == 1);
+    TEST_CHECK_BOOL(stats.createSuccessCount == 1);
     MockFfxDispatchDescUpscale dd1{};
     TEST_CHECK_BOOL(MockFfxInspector::getDispatchRecord(1, dd1));
-    TEST_CHECK_BOOL(dd1.renderSize.width == 1920 && dd1.renderSize.height == 1080);
-    TEST_CHECK_BOOL(dd1.upscaleSize.width == 1920 && dd1.upscaleSize.height == 1080);
+    TEST_CHECK_BOOL(dd1.renderSize.width == 1919 && dd1.renderSize.height == 1079);
+    TEST_CHECK_BOOL(dd1.reset == false);
 
-    // renderSize exceeding displaySize clamps cleanly to maxRenderSize
-    UpscaleParams epClamp = makeEvalParams(1, colorRes, mvRes, depthRes, nullptr, 3840.0f, 2160.0f, true, nullptr);
-    api.EvaluateUpscaler(&epClamp);
-
+    // renderSize == 0 falls back to context renderWidth/renderHeight (1280x720) -> recreates back to Quality model.
+    UpscaleParams epZero = makeEvalParams(1, colorRes, mvRes, depthRes, nullptr, 0.0f, 0.0f, true, nullptr);
+    api.EvaluateUpscaler(&epZero);
+    TEST_CHECK_BOOL(MockFfxInspector::getStats(stats));
+    TEST_CHECK_BOOL(stats.destroyCount == 2);
+    TEST_CHECK_BOOL(stats.createSuccessCount == 2);
     MockFfxDispatchDescUpscale dd2{};
     TEST_CHECK_BOOL(MockFfxInspector::getDispatchRecord(2, dd2));
-    TEST_CHECK_BOOL(dd2.renderSize.width == 1920 && dd2.renderSize.height == 1080);
+    TEST_CHECK_BOOL(dd2.renderSize.width == 1280 && dd2.renderSize.height == 720);
+    TEST_CHECK_BOOL(dd2.reset == true);
 
-    // All candidate versions fail -> degrades cleanly to UNORDERED_ACCESS fallback texture
+    // 2d. All candidate versions fail -> degrades cleanly to UNORDERED_ACCESS fallback texture
     SetEnvironmentVariableA("PD_MOCK_FFX_FAIL_VERSION", nullptr);
     TEST_CHECK_BOOL(SetEnvironmentVariableA("PD_MOCK_FFX_CREATE_FAIL", "1") != FALSE);
+    TEST_CHECK_BOOL(MockFfxInspector::reset());
 
     InitParams ipFb = ip;
     ipFb.id           = 2;
@@ -545,8 +578,8 @@ static bool runDlaaAndMultiVersionFallbackCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(api.GetRenderHeight(2) == static_cast<int>(1080 * 0.67f));
 
     TEST_CHECK_BOOL(MockFfxInspector::getStats(stats));
-    TEST_CHECK_BOOL(stats.createAttemptCount == 4);
-    TEST_CHECK_BOOL(stats.createSuccessCount == 1);
+    TEST_CHECK_BOOL(stats.createAttemptCount == 2);
+    TEST_CHECK_BOOL(stats.createSuccessCount == 0);
 
     colorRes->Release();
     depthRes->Release();
@@ -554,6 +587,7 @@ static bool runDlaaAndMultiVersionFallbackCase(const std::wstring& srcPluginDll,
 
     api.ReleaseUpscaleFeature(1);
     api.ReleaseUpscaleFeature(2);
+    api.ReleaseUpscaleFeature(3);
     TEST_CHECK_BOOL(api.SetupDirectX(nullptr, 1) == false);
     TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 0);
     TEST_CHECK_BOOL(MockD3D12Device::liveAllocators.load() == 0);
@@ -568,6 +602,59 @@ static bool runDlaaAndMultiVersionFallbackCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(MockD3D12Device::liveDevices.load() == 0);
 
     api.unload();
+    clearMockEnvVars();
+
+    // 2e. [Backend] DynamicResolution=1 -> enables FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION
+    //     (Model 4 DRS) with maxRenderSize == displaySize and zero recreates across render sizes.
+    TEST_CHECK_BOOL(writeBytesW(iniPath, "[Logging]\nVerbose=0\n[Backend]\nDynamicResolution=1\n"));
+    SetEnvironmentVariableA("PD_MOCK_FFX_VERSIONS", "1");
+
+    PluginApi apiDrs;
+    TEST_CHECK_BOOL(apiDrs.load(dstPlugin));
+    auto* devDrs   = new MockD3D12Device();
+    auto* queueDrs = new MockD3D12CommandQueue(devDrs);
+    TEST_CHECK_BOOL(apiDrs.SetupDirectX(queueDrs, 1) == true);
+    TEST_CHECK_BOOL(MockFfxInspector::reset());
+
+    void* drsTex = apiDrs.InitUpscaler(&ip); // Quality (1280x720) with DRS=1
+    TEST_CHECK_BOOL(drsTex != nullptr);
+    TEST_CHECK_BOOL(apiDrs.GetRenderWidth(1) == 1280);
+    TEST_CHECK_BOOL(apiDrs.GetRenderHeight(1) == 720);
+
+    MockFfxCreateRecord crDrs{};
+    TEST_CHECK_BOOL(MockFfxInspector::getCreateRecord(0, crDrs));
+    TEST_CHECK_BOOL((crDrs.flags & kMockFfxUpscaleEnableDynamicResolution) != 0);
+    TEST_CHECK_BOOL(crDrs.maxRenderWidth == 1920 && crDrs.maxRenderHeight == 1080);
+    TEST_CHECK_BOOL(crDrs.maxUpscaleWidth == 1920 && crDrs.maxUpscaleHeight == 1080);
+
+    auto* cDrs = makeTex2D(devDrs, 1920, 1080, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+    auto* dDrs = makeTex2D(devDrs, 1920, 1080, DXGI_FORMAT_D32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+    auto* mDrs = makeTex2D(devDrs, 1920, 1080, DXGI_FORMAT_R16G16_FLOAT, D3D12_RESOURCE_FLAG_NONE);
+
+    UpscaleParams epDrs1 = makeEvalParams(1, cDrs, mDrs, dDrs, nullptr, 1919.0f, 1079.0f, true, nullptr);
+    UpscaleParams epDrs2 = makeEvalParams(1, cDrs, mDrs, dDrs, nullptr, 3840.0f, 2160.0f, true, nullptr);
+    apiDrs.EvaluateUpscaler(&epDrs1);
+    apiDrs.EvaluateUpscaler(&epDrs2);
+
+    TEST_CHECK_BOOL(MockFfxInspector::getStats(stats));
+    TEST_CHECK_BOOL(stats.createSuccessCount == 1);
+    TEST_CHECK_BOOL(stats.destroyCount == 0);
+    MockFfxDispatchDescUpscale ddDrs0{}, ddDrs1{};
+    TEST_CHECK_BOOL(MockFfxInspector::getDispatchRecord(0, ddDrs0));
+    TEST_CHECK_BOOL(MockFfxInspector::getDispatchRecord(1, ddDrs1));
+    TEST_CHECK_BOOL(ddDrs0.renderSize.width == 1919 && ddDrs0.renderSize.height == 1079);
+    TEST_CHECK_BOOL(ddDrs1.renderSize.width == 1920 && ddDrs1.renderSize.height == 1080);
+
+    cDrs->Release();
+    dDrs->Release();
+    mDrs->Release();
+    apiDrs.ReleaseUpscaleFeature(1);
+    TEST_CHECK_BOOL(apiDrs.SetupDirectX(nullptr, 1) == false);
+    queueDrs->Release();
+    devDrs->Release();
+    TEST_CHECK_BOOL(MockD3D12Device::liveDevices.load() == 0);
+
+    apiDrs.unload();
     clearMockEnvVars();
     deleteTreeW(dir);
     printf("[Case 2] PASSED.\n");

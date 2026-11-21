@@ -97,6 +97,15 @@ Verbose=0      ; 0 = NON-VERBOSE default (version + GPU + errors only)
 ; 24 = R10G10B10A2         — HDR (10-bit). Preserved automatically in HDR.
 ; 10 = R16G16B16A16_FLOAT  — HDR (float16). Preserved automatically in HDR.
 OutputFormat=0
+
+; DynamicResolution: controls FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION.
+; 0 = off (default): FSR 4 selects the dedicated preset model matching your
+;     REFramework preset (Model 0 Native AA / 1 Quality / 2 Balanced /
+;     3 Performance / 5 Ultra Performance). Toggling "Use Native Res (DLAA)"
+;     recreates the FFX context cleanly on Model 0.
+; 1 = on: enables Dynamic Resolution Scaling (FSR 4 Model 4 / DRS) so games
+;     that change render resolution every frame avoid context recreation.
+DynamicResolution=0
 ```
 
 **Sharpness** is controlled from REFramework's upscaler UI, *not* the INI:

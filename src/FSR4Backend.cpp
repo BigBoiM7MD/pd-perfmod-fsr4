@@ -53,7 +53,15 @@ static constexpr uint64_t FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12 = MAKE_B
 // 0 = auto-detect (Wine SDR defaults to R8G8B8A8_UNORM; HDR keeps container;
 // Windows keeps backbuffer format). Non-zero forces a DXGI_FORMAT (e.g.
 // 28=R8G8B8A8_UNORM, 87=B8G8R8A8_UNORM, 24=R10G10B10A2_UNORM, 10=R16G16B16A16_FLOAT).
-static int s_outputFormatOverride = 0; // 0 => no override
+static int  s_outputFormatOverride = 0;     // 0 => no override
+// DynamicResolution ([Backend] DynamicResolution):
+//   0 = off (default): omit FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION and size
+//       maxRenderSize to the active preset so FSR 4 picks its preset-tuned
+//       model (Model 0 Native AA / 1 Quality / 2 Balanced / 3 Performance /
+//       5 Ultra Performance).
+//   1 = on: enable FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION with maxRenderSize =
+//       displaySize so FSR 4 uses Model 4 (DRS) without recreating contexts.
+static bool s_dynamicResolution    = false; // default: preset models (DRS off)
 
 static void readBackendIni() {
     const std::wstring queryPath = Logging::getIniApiPath();
@@ -68,6 +76,19 @@ static void readBackendIni() {
     }
     s_outputFormatOverride = _wtoi(buf);
     Logging::info("FSR4Backend: ini Backend.OutputFormat=%d (0=auto-detect)", s_outputFormatOverride);
+
+    wchar_t drsBuf[32] = L"0";
+    if (queryPath.size() < MAX_PATH) {
+        const DWORD copied = GetPrivateProfileStringW(L"Backend", L"DynamicResolution", L"0", drsBuf, 32, queryPath.c_str());
+        if (copied == 0) {
+            wcscpy_s(drsBuf, L"0");
+        }
+    } else {
+        Logging::readIniFallback(L"Backend", L"DynamicResolution", L"0", drsBuf, 32);
+    }
+    s_dynamicResolution = (_wtoi(drsBuf) != 0);
+    Logging::info("FSR4Backend: ini Backend.DynamicResolution=%d (0=preset models, 1=DRS model 4)",
+                  s_dynamicResolution ? 1 : 0);
 }
 
 // True when running under Wine/Proton (Linux) rather than native Windows.
@@ -373,14 +394,18 @@ struct UpscaleContext {
     ID3D12Resource*   outputTexture  = nullptr;
     ID3D12Device*     device         = nullptr;
 
-    int           renderWidth  = 0;
-    int           renderHeight = 0;
-    float         motionScaleX = 1.0f;
-    float         motionScaleY = 1.0f;
-    LARGE_INTEGER lastEvalQpc  = {};
+    int           renderWidth        = 0;
+    int           renderHeight       = 0;
+    uint32_t      ffxMaxRenderWidth  = 0;
+    uint32_t      ffxMaxRenderHeight = 0;
+    uint32_t      ffxCreateFlags     = 0;
+    float         motionScaleX       = 1.0f;
+    float         motionScaleY       = 1.0f;
+    LARGE_INTEGER lastEvalQpc        = {};
 };
 
 static void decodeFFXVersion(uint32_t v, char* out, size_t outLen);
+static void messageCallback(uint32_t type, const wchar_t* message);
 
 struct FSR4Backend::Impl {
     mutable SRWLOCK lock = SRWLOCK_INIT;
@@ -483,6 +508,143 @@ struct FSR4Backend::Impl {
             }
             ctx.outputTexture = nullptr;
         }
+    }
+
+    static ffxContext createFfxContextLocked(Impl* impl,
+                                             uint32_t flags,
+                                             uint32_t maxRenderW,
+                                             uint32_t maxRenderH,
+                                             uint32_t maxUpscaleW,
+                                             uint32_t maxUpscaleH) {
+        if (!impl || !impl->ffxCreateContextFn || !impl->device) {
+            Logging::error("FSR4Backend: missing ffxCreateContext function or device");
+            return nullptr;
+        }
+
+        // pNext chain: upscaleDesc -> [overrideVersion ->] backendDesc
+        // Try all enumerated candidateVersions sequentially (newest first) so
+        // if FSR4 context creation fails on a given GPU/driver/payload setup,
+        // we fall back cleanly to FSR3.1 instead of aborting upscaling.
+        ffxCreateBackendDX12Desc backendDesc = {};
+        backendDesc.header.type  = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+        backendDesc.header.pNext = nullptr;
+        backendDesc.device       = impl->device;
+
+        ffxCreateContextDescUpscale upscaleDesc = {};
+        upscaleDesc.header.type             = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+        upscaleDesc.header.pNext            = &backendDesc.header;
+        upscaleDesc.flags                   = flags;
+        upscaleDesc.maxRenderSize.width     = maxRenderW;
+        upscaleDesc.maxRenderSize.height    = maxRenderH;
+        upscaleDesc.maxUpscaleSize.width    = maxUpscaleW;
+        upscaleDesc.maxUpscaleSize.height   = maxUpscaleH;
+        upscaleDesc.fpMessage               = messageCallback;
+
+        Logging::info("FSR4Backend: Calling ffxCreateContext (maxRender=%ux%u maxUpscale=%ux%u flags=0x%x candidates=%zu)...",
+                      maxRenderW, maxRenderH, maxUpscaleW, maxUpscaleH, flags,
+                      impl->candidateVersions.size());
+
+        ffxContext ffxCtx = nullptr;
+        if (!impl->candidateVersions.empty()) {
+            for (size_t i = 0; i < impl->candidateVersions.size(); ++i) {
+                const auto& candidate = impl->candidateVersions[i];
+                ffxOverrideVersion overrideDesc = {};
+                overrideDesc.header.type  = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
+                overrideDesc.header.pNext = &backendDesc.header;
+                overrideDesc.versionId    = candidate.id;
+                upscaleDesc.header.pNext  = &overrideDesc.header;
+
+                ffxContext candidateCtx = nullptr;
+                ffxReturnCode_t ret = 0;
+                bool threw = false;
+                try {
+                    ret = impl->ffxCreateContextFn(&candidateCtx, &upscaleDesc.header, nullptr);
+                } catch (const std::exception& e) {
+                    threw = true;
+                    Logging::warn("FSR4Backend: ffxCreateContext candidate[%zu] '%s' (id=0x%016llx) threw: %s",
+                                  i, candidate.name.c_str(), (unsigned long long)candidate.id, e.what());
+                } catch (...) {
+                    threw = true;
+                    Logging::warn("FSR4Backend: ffxCreateContext candidate[%zu] '%s' (id=0x%016llx) threw unknown exception (SEH/AV?)",
+                                  i, candidate.name.c_str(), (unsigned long long)candidate.id);
+                }
+
+                if (!threw && ret == 0 && candidateCtx != nullptr) {
+                    ffxCtx = candidateCtx;
+                    impl->chosenVersionId = candidate.id;
+                    strncpy_s(impl->chosenVersionName, candidate.name.c_str(),
+                              sizeof(impl->chosenVersionName) - 1);
+                    if (i > 0) {
+                        Logging::always("FSR4Backend: primary FSR version failed; context initialized on fallback version %s (id=0x%016llx)",
+                                        impl->chosenVersionName, (unsigned long long)candidate.id);
+                    }
+                    break;
+                }
+
+                if (candidateCtx && impl->ffxDestroyContextFn) {
+                    try {
+                        impl->ffxDestroyContextFn(&candidateCtx, nullptr);
+                    } catch (...) {}
+                }
+                if (!threw) {
+                    Logging::warn("FSR4Backend: ffxCreateContext candidate[%zu] '%s' (id=0x%016llx) failed (ret=%u ctx=%p)",
+                                  i, candidate.name.c_str(), (unsigned long long)candidate.id, ret, candidateCtx);
+                }
+            }
+        } else {
+            upscaleDesc.header.pNext = &backendDesc.header;
+            ffxContext candidateCtx = nullptr;
+            ffxReturnCode_t ret = 0;
+            bool threw = false;
+            try {
+                ret = impl->ffxCreateContextFn(&candidateCtx, &upscaleDesc.header, nullptr);
+            } catch (const std::exception& e) {
+                threw = true;
+                Logging::error("FSR4Backend: ffxCreateContext threw: %s", e.what());
+            } catch (...) {
+                threw = true;
+                Logging::error("FSR4Backend: ffxCreateContext threw an unknown exception (SEH/AV?)");
+            }
+            if (!threw) {
+                Logging::info("FSR4Backend: ffxCreateContext returned ret=%u ctx=%p", ret, candidateCtx);
+                if (ret == 0 && candidateCtx != nullptr) {
+                    ffxCtx = candidateCtx;
+                } else if (candidateCtx && impl->ffxDestroyContextFn) {
+                    try {
+                        impl->ffxDestroyContextFn(&candidateCtx, nullptr);
+                    } catch (...) {}
+                }
+            }
+        }
+
+        if (ffxCtx == nullptr) {
+            Logging::error("=============================================================");
+            Logging::error("FSR4Backend: ffxCreateContext failed for all %zu candidate version(s). The FSR4",
+                           impl->candidateVersions.size());
+            Logging::error("payload files required by amd_fidelityfx_loader_dx12.dll are missing or");
+            Logging::error("the loader version is wrong. Verify the FSR4 files match FFX version");
+            Logging::error("0x%x. FSR4 will NOT run (black screen).", (unsigned)FFX_UPSCALER_VERSION);
+            Logging::error("=============================================================");
+            return nullptr;
+        }
+
+        Logging::info("FSR4Backend: ffxCreateContext SUCCEEDED");
+
+        // Truth check: ask the context which version it actually initialized at.
+        if (impl->ffxQueryFn) {
+            ffxQueryGetProviderVersion pv = {};
+            pv.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
+            if (impl->ffxQueryFn(&ffxCtx, &pv.header) == 0 && pv.versionName) {
+                if (impl->chosenVersionName[0] == '\0' ||
+                    strncmp(impl->chosenVersionName, pv.versionName, sizeof(impl->chosenVersionName) - 1) != 0) {
+                    strncpy_s(impl->chosenVersionName, pv.versionName, sizeof(impl->chosenVersionName) - 1);
+                    Logging::always("FSR running version: %s (id=0x%016llx)",
+                                    impl->chosenVersionName, (unsigned long long)pv.versionId);
+                }
+            }
+        }
+
+        return ffxCtx;
     }
 
     static void cleanupSetupState(Impl* impl) {
@@ -1123,13 +1285,14 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
 
         float scale;
         switch (qualityLevel) {
-            case 0: scale = 2.0f; break;
-            case 1: scale = 1.7f; break;
-            case 2: scale = 1.5f; break;
-            case 3: scale = 1.0f; break; // DLAA / Native resolution
+            case 0: scale = 2.0f; break; // Performance       -> FSR4 Model 3
+            case 1: scale = 1.7f; break; // Balanced          -> FSR4 Model 2
+            case 2: scale = 1.5f; break; // Quality           -> FSR4 Model 1
+            case 3: scale = 3.0f; break; // Ultra Performance -> FSR4 Model 5
+            case 4: scale = 1.0f; break; // Native AA / DLAA  -> FSR4 Model 0
             default: scale = 1.5f; break;
         }
-        if (qualityLevel == 3) {
+        if (qualityLevel == 4) {
             ctx.renderWidth  = displaySizeX;
             ctx.renderHeight = displaySizeY;
         } else {
@@ -1139,151 +1302,38 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
         if (ctx.renderWidth < 1) ctx.renderWidth = 1;
         if (ctx.renderHeight < 1) ctx.renderHeight = 1;
 
-        Logging::info("FSR4Backend: render=%dx%d upscale=%dx%d scale=%.2f",
-                      ctx.renderWidth, ctx.renderHeight, displaySizeX, displaySizeY, scale);
+        Logging::info("FSR4Backend: render=%dx%d upscale=%dx%d scale=%.2f drs=%d",
+                      ctx.renderWidth, ctx.renderHeight, displaySizeX, displaySizeY, scale,
+                      s_dynamicResolution ? 1 : 0);
 
-        uint32_t flags = FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION;
+        uint32_t flags = s_dynamicResolution ? FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION : 0u;
         if (isContentHDR)          flags |= FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE;
         if (depthInverted)         flags |= FFX_UPSCALE_ENABLE_DEPTH_INVERTED;
         if (motionVectorsJittered) flags |= FFX_UPSCALE_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION;
         if (enableAutoExposure)    flags |= FFX_UPSCALE_ENABLE_AUTO_EXPOSURE;
 
-        Logging::info("FSR4Backend: flags=0x%x HDR=%d depthInv=%d mvJitter=%d autoExp=%d sharp=%d",
-                      flags, isContentHDR, depthInverted, motionVectorsJittered,
-                      enableAutoExposure, enableSharpening);
+        Logging::info("FSR4Backend: flags=0x%x DRS=%d HDR=%d depthInv=%d mvJitter=%d autoExp=%d sharp=%d",
+                      flags, s_dynamicResolution ? 1 : 0, isContentHDR, depthInverted,
+                      motionVectorsJittered, enableAutoExposure, enableSharpening);
 
-        if (!m_impl->ffxCreateContextFn) {
-            Logging::error("FSR4Backend: missing ffxCreateContext function");
-            return nullptr;
-        }
+        const uint32_t maxRenderW = s_dynamicResolution
+            ? static_cast<uint32_t>(displaySizeX)
+            : static_cast<uint32_t>(ctx.renderWidth);
+        const uint32_t maxRenderH = s_dynamicResolution
+            ? static_cast<uint32_t>(displaySizeY)
+            : static_cast<uint32_t>(ctx.renderHeight);
 
-        // pNext chain: upscaleDesc -> [overrideVersion ->] backendDesc
-        // Try all enumerated candidateVersions sequentially (newest first) so
-        // if FSR4 context creation fails on a given GPU/driver/payload setup,
-        // we fall back cleanly to FSR3.1 instead of aborting upscaling.
-        ffxCreateBackendDX12Desc backendDesc = {};
-        backendDesc.header.type  = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
-        backendDesc.header.pNext = nullptr;
-        backendDesc.device       = m_impl->device;
-
-        ffxCreateContextDescUpscale upscaleDesc = {};
-        upscaleDesc.header.type             = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
-        upscaleDesc.header.pNext            = &backendDesc.header;
-        upscaleDesc.flags                   = flags;
-        upscaleDesc.maxRenderSize.width     = static_cast<uint32_t>(displaySizeX);
-        upscaleDesc.maxRenderSize.height    = static_cast<uint32_t>(displaySizeY);
-        upscaleDesc.maxUpscaleSize.width    = static_cast<uint32_t>(displaySizeX);
-        upscaleDesc.maxUpscaleSize.height   = static_cast<uint32_t>(displaySizeY);
-        upscaleDesc.fpMessage               = messageCallback;
-
-        Logging::info("FSR4Backend: Calling ffxCreateContext (candidates=%zu)...",
-                      m_impl->candidateVersions.size());
-
-        ffxContext ffxCtx = nullptr;
-        if (!m_impl->candidateVersions.empty()) {
-            for (size_t i = 0; i < m_impl->candidateVersions.size(); ++i) {
-                const auto& candidate = m_impl->candidateVersions[i];
-                ffxOverrideVersion overrideDesc = {};
-                overrideDesc.header.type  = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
-                overrideDesc.header.pNext = &backendDesc.header;
-                overrideDesc.versionId    = candidate.id;
-                upscaleDesc.header.pNext  = &overrideDesc.header;
-
-                ffxContext candidateCtx = nullptr;
-                ffxReturnCode_t ret = 0;
-                bool threw = false;
-                try {
-                    ret = m_impl->ffxCreateContextFn(&candidateCtx, &upscaleDesc.header, nullptr);
-                } catch (const std::exception& e) {
-                    threw = true;
-                    Logging::warn("FSR4Backend: ffxCreateContext candidate[%zu] '%s' (id=0x%016llx) threw: %s",
-                                  i, candidate.name.c_str(), (unsigned long long)candidate.id, e.what());
-                } catch (...) {
-                    threw = true;
-                    Logging::warn("FSR4Backend: ffxCreateContext candidate[%zu] '%s' (id=0x%016llx) threw unknown exception (SEH/AV?)",
-                                  i, candidate.name.c_str(), (unsigned long long)candidate.id);
-                }
-
-                if (!threw && ret == 0 && candidateCtx != nullptr) {
-                    ffxCtx = candidateCtx;
-                    m_impl->chosenVersionId = candidate.id;
-                    strncpy_s(m_impl->chosenVersionName, candidate.name.c_str(),
-                              sizeof(m_impl->chosenVersionName) - 1);
-                    if (i > 0) {
-                        Logging::always("FSR4Backend: primary FSR version failed; context initialized on fallback version %s (id=0x%016llx)",
-                                        m_impl->chosenVersionName, (unsigned long long)candidate.id);
-                    }
-                    break;
-                }
-
-                if (candidateCtx && m_impl->ffxDestroyContextFn) {
-                    try {
-                        m_impl->ffxDestroyContextFn(&candidateCtx, nullptr);
-                    } catch (...) {}
-                }
-                if (!threw) {
-                    Logging::warn("FSR4Backend: ffxCreateContext candidate[%zu] '%s' (id=0x%016llx) failed (ret=%u ctx=%p)",
-                                  i, candidate.name.c_str(), (unsigned long long)candidate.id, ret, candidateCtx);
-                }
-            }
-        } else {
-            upscaleDesc.header.pNext = &backendDesc.header;
-            ffxContext candidateCtx = nullptr;
-            ffxReturnCode_t ret = 0;
-            bool threw = false;
-            try {
-                ret = m_impl->ffxCreateContextFn(&candidateCtx, &upscaleDesc.header, nullptr);
-            } catch (const std::exception& e) {
-                threw = true;
-                Logging::error("FSR4Backend: ffxCreateContext threw: %s", e.what());
-            } catch (...) {
-                threw = true;
-                Logging::error("FSR4Backend: ffxCreateContext threw an unknown exception (SEH/AV?)");
-            }
-            if (!threw) {
-                Logging::info("FSR4Backend: ffxCreateContext returned ret=%u ctx=%p", ret, candidateCtx);
-                if (ret == 0 && candidateCtx != nullptr) {
-                    ffxCtx = candidateCtx;
-                } else if (candidateCtx && m_impl->ffxDestroyContextFn) {
-                    try {
-                        m_impl->ffxDestroyContextFn(&candidateCtx, nullptr);
-                    } catch (...) {}
-                }
-            }
-        }
-
+        ffxContext ffxCtx = Impl::createFfxContextLocked(
+            m_impl, flags, maxRenderW, maxRenderH,
+            static_cast<uint32_t>(displaySizeX), static_cast<uint32_t>(displaySizeY));
         if (ffxCtx == nullptr) {
-            // ffxCreateContext failed for every enumerated candidate version -> upscaler
-            // can't run -> PDPerfPlugin allocates the fallback texture instead.
-            Logging::error("=============================================================");
-            Logging::error("FSR4Backend: ffxCreateContext failed for all %zu candidate version(s). The FSR4",
-                           m_impl->candidateVersions.size());
-            Logging::error("payload files required by amd_fidelityfx_loader_dx12.dll are missing or");
-            Logging::error("the loader version is wrong. Verify the FSR4 files match FFX version");
-            Logging::error("0x%x. FSR4 will NOT run (black screen).", (unsigned)FFX_UPSCALER_VERSION);
-            Logging::error("=============================================================");
             return nullptr;
         }
 
-        Logging::info("FSR4Backend: ffxCreateContext SUCCEEDED");
-        ctx.ffxCtx = ffxCtx;
-
-        // Truth check: ask the context which version it actually initialized at.
-        // Normally matches chosenVersionName; if it diverges (driver quirk, etc.)
-        // log the real running version so the user isn't misled. The name pointer
-        // lives in loader memory, so copy it.
-        if (m_impl->ffxQueryFn) {
-            ffxQueryGetProviderVersion pv = {};
-            pv.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
-            if (m_impl->ffxQueryFn(&ffxCtx, &pv.header) == 0 && pv.versionName) {
-                if (m_impl->chosenVersionName[0] == '\0' ||
-                    strncmp(m_impl->chosenVersionName, pv.versionName, sizeof(m_impl->chosenVersionName) - 1) != 0) {
-                    strncpy_s(m_impl->chosenVersionName, pv.versionName, sizeof(m_impl->chosenVersionName) - 1);
-                    Logging::always("FSR running version: %s (id=0x%016llx)",
-                                    m_impl->chosenVersionName, (unsigned long long)pv.versionId);
-                }
-            }
-        }
+        ctx.ffxCtx             = ffxCtx;
+        ctx.ffxMaxRenderWidth  = maxRenderW;
+        ctx.ffxMaxRenderHeight = maxRenderH;
+        ctx.ffxCreateFlags     = flags;
 
         // Create output texture
         D3D12_RESOURCE_DESC texDesc = {};
@@ -1432,6 +1482,59 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             return;
         }
 
+        int effectiveRenderW = (renderSizeX > 0) ? renderSizeX : ctx.renderWidth;
+        int effectiveRenderH = (renderSizeY > 0) ? renderSizeY : ctx.renderHeight;
+        if (effectiveRenderW > ctx.displaySizeX) effectiveRenderW = ctx.displaySizeX;
+        if (effectiveRenderH > ctx.displaySizeY) effectiveRenderH = ctx.displaySizeY;
+        if (effectiveRenderW < 1) effectiveRenderW = 1;
+        if (effectiveRenderH < 1) effectiveRenderH = 1;
+
+        bool recreatedForResize = false;
+        if (!s_dynamicResolution) {
+            // REFramework's "Use Native Res (DLAA)" checkbox keeps the same
+            // context but passes renderSize = displaySize - 1. Snap maxRenderSize
+            // to displaySize for exact 1.0x ratio (FSR 4 Model 0 / Native AA)
+            // while keeping dd.renderSize at the actual input dimensions.
+            const bool isNativeRes =
+                (effectiveRenderW >= ctx.displaySizeX - 1) &&
+                (effectiveRenderH >= ctx.displaySizeY - 1);
+            const uint32_t desiredMaxW = isNativeRes
+                ? static_cast<uint32_t>(ctx.displaySizeX)
+                : static_cast<uint32_t>(effectiveRenderW);
+            const uint32_t desiredMaxH = isNativeRes
+                ? static_cast<uint32_t>(ctx.displaySizeY)
+                : static_cast<uint32_t>(effectiveRenderH);
+
+            if (desiredMaxW != ctx.ffxMaxRenderWidth || desiredMaxH != ctx.ffxMaxRenderHeight) {
+                Logging::info("FSR4Backend: render size changed %ux%u -> %ux%u (DynamicResolution=0); recreating FFX context for preset model",
+                              ctx.ffxMaxRenderWidth, ctx.ffxMaxRenderHeight, desiredMaxW, desiredMaxH);
+                if (!cmdList) {
+                    Impl::closeInternalCmdListIfOpen(m_impl);
+                }
+                Impl::waitForGpu(m_impl);
+                if (ctx.ffxCtx && m_impl->ffxDestroyContextFn) {
+                    try {
+                        m_impl->ffxDestroyContextFn(&ctx.ffxCtx, nullptr);
+                    } catch (...) {
+                        Logging::warn("FSR4Backend: ffxDestroyContext threw during resize recreate (id=%d)", id);
+                    }
+                    ctx.ffxCtx = nullptr;
+                }
+                ffxContext newCtx = Impl::createFfxContextLocked(
+                    m_impl, ctx.ffxCreateFlags, desiredMaxW, desiredMaxH,
+                    static_cast<uint32_t>(ctx.displaySizeX), static_cast<uint32_t>(ctx.displaySizeY));
+                if (!newCtx) {
+                    Logging::error("FSR4Backend: failed to recreate FFX context for %ux%u (id=%d)",
+                                   desiredMaxW, desiredMaxH, id);
+                    return;
+                }
+                ctx.ffxCtx             = newCtx;
+                ctx.ffxMaxRenderWidth  = desiredMaxW;
+                ctx.ffxMaxRenderHeight = desiredMaxH;
+                recreatedForResize     = true;
+            }
+        }
+
         if (!cmdList) {
             ID3D12CommandAllocator* slotAlloc = m_impl->cmdAllocs[m_impl->currentSlot];
             if (!slotAlloc || !m_impl->cmdList) {
@@ -1482,13 +1585,6 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         // from UAV -> backbuffer (PRESENT), so it must be left in UAV state.
         dd.output         = makeResource((ID3D12Resource*)effectiveDst, FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_API_RESOURCE_USAGE_UAV);
 
-        int effectiveRenderW = (renderSizeX > 0) ? renderSizeX : ctx.renderWidth;
-        int effectiveRenderH = (renderSizeY > 0) ? renderSizeY : ctx.renderHeight;
-        if (effectiveRenderW > ctx.displaySizeX) effectiveRenderW = ctx.displaySizeX;
-        if (effectiveRenderH > ctx.displaySizeY) effectiveRenderH = ctx.displaySizeY;
-        if (effectiveRenderW < 1) effectiveRenderW = 1;
-        if (effectiveRenderH < 1) effectiveRenderH = 1;
-
         dd.jitterOffset.x          = jitterOffsetX;
         dd.jitterOffset.y          = jitterOffsetY;
         dd.motionVectorScale.x     = ctx.motionScaleX;
@@ -1515,7 +1611,7 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
         }
         dd.frameTimeDelta          = computeFrameTimeDeltaMs(ctx.lastEvalQpc, m_impl->qpcFreq);
         dd.preExposure             = 1.0f;
-        dd.reset                   = reset;
+        dd.reset                   = reset || recreatedForResize;
         dd.cameraNear              = nearPlane;
         dd.cameraFar               = farPlane;
         dd.cameraFovAngleVertical  = verticalFOV;

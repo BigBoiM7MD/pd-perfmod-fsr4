@@ -26,7 +26,7 @@ hardening release.
   - Guarded `FSR4Backend::Impl` and `PDPerfPlugin` fallback state with non-nested `SRWLOCK`s, drained pending GPU fence work before releasing/overwriting contexts or tearing down, validated inputs before `cmdList->Reset()`, checked `cmdList->Close()` `HRESULT`, and recovered open internal command lists across early returns and SEH exceptions.
 - **VR multipass, DLAA, multi-version fallback & Linux R/B swap:**
   - Wrapped `EvaluateUpscaler` and `SimpleEvaluate` under `/EHa` `try/catch`, isolated external `cmdList`s, and recorded dispatches when `execute == false` (submitting once when `execute == true`) for VR dual-eye multipass.
-  - Enabled `FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION` with `maxRenderSize = displaySize`, `qualityLevel == 3` (DLAA / native res), and dynamic `renderSizeX`/`renderSizeY` clamping.
+  - Defaulted `FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION` to OFF (`[Backend] DynamicResolution=0`) and sized `maxRenderSize` to the active REFramework preset (`Performance` `2.0x` -> Model 3, `Balanced` `1.7x` -> Model 2, `Quality` `1.5x` -> Model 1, `Ultra Performance` `3.0x` -> Model 5) instead of forcing FSR 4 Model 4 (DRS). Toggling REFramework's `"Use Native Res (DLAA)"` cleanly recreates the FFX context at `1.0x` (Model 0 / Native AA), while setting `[Backend] DynamicResolution=1` opts into DRS (Model 4).
   - Added sequential fallback across all enumerated FSR versions in `createContext()` if the newest version fails to initialize.
   - With `FfxApiSurfaceFormat` fixed, Linux/Proton SDR outputs `R8G8B8A8_UNORM` (`28`) directly with correct colors — removing the redundant R/B swap compute pass, staging texture, descriptor heap, and compiled HLSL bytecode entirely.
 - **Host logging, frame timing & defaults:**

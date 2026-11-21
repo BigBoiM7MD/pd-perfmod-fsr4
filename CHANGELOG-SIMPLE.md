@@ -25,7 +25,11 @@ and handles long/Unicode game install folders cleanly.
 ## 3. Better VR, DLAA, multi-version fallback & faster Linux/Proton output
 - **VR multipass:** left-eye passes (`execute = false`) now record properly and
   submit together with the right eye instead of being skipped.
-- **Native Res / DLAA:** supported cleanly via dynamic resolution.
+- **Preset-accurate FSR 4 models & Native Res (DLAA):** each REFramework preset
+  (Quality, Balanced, Performance, Ultra Performance) and the "Use Native Res
+  (DLAA)" toggle now uses its dedicated FSR 4 model instead of the generic DRS
+  model. If a game uses dynamic resolution scaling, you can opt into DRS via
+  `DynamicResolution=1` under `[Backend]` in `pd-perfmod-fsr4.ini`.
 - **Automatic version fallback:** if the newest detected FSR version fails to
   initialize on your driver, the plugin automatically tries older available FSR
   versions before giving up.
