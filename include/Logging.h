@@ -23,7 +23,7 @@ class Logging {
 public:
     using LogDelegateFn = void (*)(char* message, int iSize);
 
-    static void init();
+    static bool init();
     static void setDelegate(LogDelegateFn fn);
     static void info(const char* fmt, ...);
     static void warn(const char* fmt, ...);

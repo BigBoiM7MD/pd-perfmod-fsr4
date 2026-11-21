@@ -357,7 +357,8 @@ bool Logging::readIniFallback(const wchar_t* section, const wchar_t* key,
     return false;
 }
 
-BOOL CALLBACK Logging::loggingInitOnce(PINIT_ONCE, PVOID, PVOID*) {
+BOOL CALLBACK Logging::loggingInitOnce(PINIT_ONCE, PVOID param, PVOID*) {
+    auto* didInit = static_cast<bool*>(param);
     // Guard the whole routine. Under Wine/Proton the INI/log file open or the
     // INI read can throw; if it does we must NOT abort the plugin's init (that
     // used to escape through the export and kill REFramework). Fall back to a
@@ -410,7 +411,9 @@ BOOL CALLBACK Logging::loggingInitOnce(PINIT_ONCE, PVOID, PVOID*) {
             safeStderrWarn("[PDPerfPlugin] WARNING: could not open log file %ls (continuing; output -> stderr only)\n",
                            logPath.c_str());
         }
-        always("pd-perfmod-fsr4 loaded (mode: %s)", s_verbose ? "VERBOSE" : "NON-VERBOSE");
+        if (didInit) {
+            *didInit = true;
+        }
     } catch (...) {
         // Logger setup threw (shouldn't, but under emulation anything goes):
         // keep s_file null; vlog() mirrors to stderr so we're never blind.
@@ -420,8 +423,10 @@ BOOL CALLBACK Logging::loggingInitOnce(PINIT_ONCE, PVOID, PVOID*) {
     return TRUE;
 }
 
-void Logging::init() {
-    InitOnceExecuteOnce(&s_initOnce, loggingInitOnce, nullptr, nullptr);
+bool Logging::init() {
+    bool firstInit = false;
+    InitOnceExecuteOnce(&s_initOnce, loggingInitOnce, &firstInit, nullptr);
+    return firstInit;
 }
 
 void Logging::setDelegate(LogDelegateFn fn) {

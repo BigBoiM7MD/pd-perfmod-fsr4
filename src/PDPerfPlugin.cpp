@@ -20,7 +20,8 @@ static SRWLOCK g_fallbackLock = SRWLOCK_INIT;
 static ID3D12Device* g_d3d12Device = nullptr;
 static std::unordered_map<int, ID3D12Resource*> g_fallbackTextures;
 
-static BOOL CALLBACK initializeOnce(PINIT_ONCE, PVOID, PVOID*) {
+static BOOL CALLBACK initializeOnce(PINIT_ONCE, PVOID param, PVOID*) {
+    auto* bannerPending = static_cast<bool*>(param);
     // EXPORT-GUARDED. REFramework calls IsUpscaleMethodAvailable /
     // GetUpscaleMethodName from TemporalUpscaler::on_initialize() *before*
     // SetupDirectX runs, so this runs during load on the game thread. If
@@ -33,8 +34,9 @@ static BOOL CALLBACK initializeOnce(PINIT_ONCE, PVOID, PVOID*) {
     // and degrades to "no backend available" instead of crashing. Always
     // return TRUE so InitOnceExecuteOnce never wedges subsequent callers.
     try {
-        Logging::init();
-        Logging::info("pd-perfmod-fsr4 initializing...");
+        if (Logging::init() && bannerPending) {
+            *bannerPending = true;
+        }
         g_fsr4 = new FSR4Backend();
     } catch (const std::exception& e) {
         // Logging may be unavailable (it threw) -> fallback to stderr so the
@@ -51,7 +53,16 @@ static BOOL CALLBACK initializeOnce(PINIT_ONCE, PVOID, PVOID*) {
 }
 
 static void initialize() {
-    InitOnceExecuteOnce(&g_initOnce, initializeOnce, nullptr, nullptr);
+    bool bannerPending = false;
+    InitOnceExecuteOnce(&g_initOnce, initializeOnce, &bannerPending, nullptr);
+    // Emit the startup banner strictly AFTER InitOnceExecuteOnce completes so
+    // an external InitLogDelegate callback cannot re-enter g_initOnce /
+    // s_initOnce (Win32 INIT_ONCE is non-reentrant and would deadlock).
+    if (bannerPending) {
+        Logging::always("pd-perfmod-fsr4 loaded (mode: %s)",
+                        Logging::isVerbose() ? "VERBOSE" : "NON-VERBOSE");
+        Logging::info("pd-perfmod-fsr4 initializing...");
+    }
 }
 
 static ID3D12Resource* createFallbackTextureLocked(int displaySizeX, int displaySizeY, int format) {

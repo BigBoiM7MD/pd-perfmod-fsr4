@@ -154,6 +154,7 @@ struct PluginApi {
     void (__stdcall* ReleaseUpscaleFeature)(int) = nullptr;
     void (__stdcall* InitLogDelegate)(void (*)(char*, int)) = nullptr;
     bool (__stdcall* IsUpscaleMethodAvailable)(int) = nullptr;
+    char* (__stdcall* GetUpscaleMethodName)(int) = nullptr;
 
     bool load(const std::wstring& dllPath) {
         mod = LoadLibraryW(dllPath.c_str());
@@ -165,9 +166,11 @@ struct PluginApi {
         ReleaseUpscaleFeature    = reinterpret_cast<decltype(ReleaseUpscaleFeature)>(GetProcAddress(mod, "ReleaseUpscaleFeature"));
         InitLogDelegate          = reinterpret_cast<decltype(InitLogDelegate)>(GetProcAddress(mod, "InitLogDelegate"));
         IsUpscaleMethodAvailable = reinterpret_cast<decltype(IsUpscaleMethodAvailable)>(GetProcAddress(mod, "IsUpscaleMethodAvailable"));
+        GetUpscaleMethodName     = reinterpret_cast<decltype(GetUpscaleMethodName)>(GetProcAddress(mod, "GetUpscaleMethodName"));
 
         TEST_CHECK_BOOL(SetupDirectX && InitUpscaler && EvaluateUpscaler &&
-                        ReleaseUpscaleFeature && InitLogDelegate && IsUpscaleMethodAvailable);
+                        ReleaseUpscaleFeature && InitLogDelegate && IsUpscaleMethodAvailable &&
+                        GetUpscaleMethodName);
         return true;
     }
 
@@ -293,12 +296,46 @@ static std::atomic<bool> g_reenteredOnce{false};
 static std::atomic<int>  g_reentrantCalls{0};
 static void* (__stdcall* g_reentrantInitUpscaler)(InitParams*) = nullptr;
 static void (__stdcall* g_reentrantInitLogDelegate)(void (*)(char*, int)) = nullptr;
+static char* (__stdcall* g_reentrantGetMethodName)(int) = nullptr;
+static std::atomic<bool> g_firstCallSawBanner{false};
+static std::atomic<bool> g_firstCallSawNestedError{false};
+static std::atomic<bool> g_firstCallMethodNameOk{false};
 
 static void reentrantDelegate(char* msg, int iSize) {
     (void)msg;
     (void)iSize;
     g_reentrantCalls.fetch_add(1, std::memory_order_acq_rel);
     if (!g_reenteredOnce.exchange(true, std::memory_order_acq_rel)) {
+        if (g_reentrantInitUpscaler) {
+            g_reentrantInitUpscaler(nullptr);
+        }
+    } else {
+        if (g_reentrantInitLogDelegate) {
+            g_reentrantInitLogDelegate(nullptr);
+        }
+    }
+}
+
+static void firstCallReentrantDelegate(char* msg, int iSize) {
+    if (!msg || iSize <= 0 || static_cast<size_t>(iSize) != strlen(msg)) {
+        g_contractViolated.store(true, std::memory_order_release);
+        return;
+    }
+    g_reentrantCalls.fetch_add(1, std::memory_order_acq_rel);
+    if (strstr(msg, "pd-perfmod-fsr4 loaded") != nullptr) {
+        g_firstCallSawBanner.store(true, std::memory_order_release);
+    }
+    if (strstr(msg, "[ERROR] ") != nullptr && strstr(msg, "InitUpscaler: NULL params") != nullptr) {
+        g_firstCallSawNestedError.store(true, std::memory_order_release);
+    }
+
+    if (!g_reenteredOnce.exchange(true, std::memory_order_acq_rel)) {
+        if (g_reentrantGetMethodName) {
+            const char* name = g_reentrantGetMethodName(1);
+            if (name && strcmp(name, "AMD FSR 3") == 0) {
+                g_firstCallMethodNameOk.store(true, std::memory_order_release);
+            }
+        }
         if (g_reentrantInitUpscaler) {
             g_reentrantInitUpscaler(nullptr);
         }
@@ -454,7 +491,56 @@ static bool runLogDelegateCase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(logText.find("FSR4Backend::setup(") != std::string::npos);
 
     deleteTreeW(dir);
-    printf("[Case 1] PASSED (delegate forwarding, contract, re-entrancy, nullptr, C++/SEH survival verified).\n");
+
+    // Subcase 1b (WR-01): Freshly loaded DLL where InitLogDelegate(reentrant) is the
+    // very first export call. Re-entering GetUpscaleMethodName / InitUpscaler(nullptr) /
+    // InitLogDelegate(nullptr) from inside the "pd-perfmod-fsr4 loaded" startup banner
+    // must never deadlock on Win32 INIT_ONCE (g_initOnce / s_initOnce).
+    {
+        const std::wstring dir1b = tempRoot + L"\\case1b_first_call_reentrant";
+        deleteTreeW(dir1b);
+        TEST_CHECK_BOOL(CreateDirectoryW(dir1b.c_str(), nullptr) != FALSE);
+
+        const std::wstring dstPlugin1b = dir1b + L"\\PDPerfPlugin.dll";
+        const std::wstring logPath1b   = dir1b + L"\\pd-perfmod-fsr4.log";
+        TEST_CHECK_BOOL(CopyFileW(srcPluginDll.c_str(), dstPlugin1b.c_str(), FALSE) != FALSE);
+
+        g_contractViolated.store(false, std::memory_order_release);
+        g_reenteredOnce.store(false, std::memory_order_release);
+        g_reentrantCalls.store(0, std::memory_order_release);
+        g_firstCallSawBanner.store(false, std::memory_order_release);
+        g_firstCallSawNestedError.store(false, std::memory_order_release);
+        g_firstCallMethodNameOk.store(false, std::memory_order_release);
+
+        PluginApi freshApi;
+        TEST_CHECK_BOOL(freshApi.load(dstPlugin1b));
+        g_reentrantInitUpscaler    = freshApi.InitUpscaler;
+        g_reentrantInitLogDelegate = freshApi.InitLogDelegate;
+        g_reentrantGetMethodName   = freshApi.GetUpscaleMethodName;
+
+        // First export call on freshly loaded DLL: triggers banner -> nested exports
+        freshApi.InitLogDelegate(&firstCallReentrantDelegate);
+
+        g_reentrantInitUpscaler    = nullptr;
+        g_reentrantInitLogDelegate = nullptr;
+        g_reentrantGetMethodName   = nullptr;
+        freshApi.unload();
+
+        TEST_CHECK_BOOL(!g_contractViolated.load(std::memory_order_acquire));
+        TEST_CHECK_BOOL(g_firstCallSawBanner.load(std::memory_order_acquire));
+        TEST_CHECK_BOOL(g_firstCallMethodNameOk.load(std::memory_order_acquire));
+        TEST_CHECK_BOOL(g_firstCallSawNestedError.load(std::memory_order_acquire));
+        TEST_CHECK_BOOL(g_reentrantCalls.load(std::memory_order_acquire) == 2);
+
+        std::string logText1b;
+        TEST_CHECK_BOOL(readAllTextW(logPath1b, logText1b));
+        TEST_CHECK_BOOL(logText1b.find("pd-perfmod-fsr4 loaded") != std::string::npos);
+        TEST_CHECK_BOOL(logText1b.find("InitUpscaler: NULL params") != std::string::npos);
+
+        deleteTreeW(dir1b);
+    }
+
+    printf("[Case 1] PASSED (delegate forwarding, contract, first-call + steady-state re-entrancy, nullptr, C++/SEH survival verified).\n");
     return true;
 }
 
