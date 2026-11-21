@@ -367,31 +367,31 @@ BOOL CALLBACK Logging::loggingInitOnce(PINIT_ONCE, PVOID, PVOID*) {
         const std::wstring iniPath     = getIniPath();
         const std::wstring profilePath = getIniApiPath();
 
-        wchar_t buf[16] = L"1";
-        // Default to VERBOSE. The non-verbose path hides almost every
-        // FSR4Backend: diagnostic line, and on a new platform (Linux/Proton)
-        // you WANT to see them. User can set Verbose=0 to quiet it down.
+        wchar_t buf[16] = L"0";
+        // Default to NON-VERBOSE (Verbose=0), matching README.md: prints the
+        // loaded banner, FSR version + GPU header, and errors while keeping
+        // disk I/O quiet. Users can set Verbose=1 for full internal diagnostics.
         // Note: when the key or file is missing, GetPrivateProfileStringW
-        // copies L"1" and returns 1. Checking copied == 0 preserves L"1" if the
+        // copies L"0" and returns 1. Checking copied == 0 preserves L"0" if the
         // Win32 API fails (e.g. >= MAX_PATH without 8.3 names) or is empty.
         if (profilePath.size() < MAX_PATH) {
-            const DWORD copied = GetPrivateProfileStringW(L"Logging", L"Verbose", L"1", buf, 16, profilePath.c_str());
+            const DWORD copied = GetPrivateProfileStringW(L"Logging", L"Verbose", L"0", buf, 16, profilePath.c_str());
             if (copied == 0) {
-                wcscpy_s(buf, L"1");
+                wcscpy_s(buf, L"0");
             }
         } else {
-            readIniFallback(L"Logging", L"Verbose", L"1", buf, 16);
+            readIniFallback(L"Logging", L"Verbose", L"0", buf, 16);
         }
         s_verbose = (buf[0] == L'1');
 
         if (GetFileAttributesW(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-            // File missing -> create it with VERBOSE default so diagnostics show.
+            // File missing -> create it with NON-VERBOSE (Verbose=0) default.
             if (profilePath.size() >= MAX_PATH ||
-                !WritePrivateProfileStringW(L"Logging", L"Verbose", L"1", profilePath.c_str()) ||
+                !WritePrivateProfileStringW(L"Logging", L"Verbose", L"0", profilePath.c_str()) ||
                 GetFileAttributesW(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
                 FILE* iniFile = _wfopen(iniPath.c_str(), L"w");
                 if (iniFile) {
-                    fputs("[Logging]\nVerbose=1\n", iniFile);
+                    fputs("[Logging]\nVerbose=0\n", iniFile);
                     fclose(iniFile);
                 }
             }

@@ -475,7 +475,7 @@ static bool testBoundary241AndInitOrder(const std::wstring& srcDllPath) {
     TEST_CHECK_VOID(CopyFileW(srcDllPath.c_str(), dstDll.c_str(), FALSE) != FALSE);
     TEST_CHECK_VOID(writeBytesW(iniPath, ""));
 
-    // 1) Empty INI in 241-char dir + InitUpscaler(nullptr) first -> logs NULL params in VERBOSE mode
+    // 1) Empty INI in 241-char dir + InitUpscaler(nullptr) first -> defaults to NON-VERBOSE while Logging::error still writes
     HMODULE mod = LoadLibraryW(dstDll.c_str());
     TEST_CHECK_VOID(mod != nullptr);
     auto initUpscaler = reinterpret_cast<PFN_InitUpscaler>(GetProcAddress(mod, "InitUpscaler"));
@@ -486,11 +486,11 @@ static bool testBoundary241AndInitOrder(const std::wstring& srcDllPath) {
     std::vector<uint8_t> logBytes;
     TEST_CHECK_VOID(readAllBytesW(logPath, logBytes));
     std::string logStr(logBytes.begin(), logBytes.end());
-    TEST_CHECK_VOID(logStr.find("mode: VERBOSE") != std::string::npos);
+    TEST_CHECK_VOID(logStr.find("mode: NON-VERBOSE") != std::string::npos);
     TEST_CHECK_VOID(logStr.find("InitUpscaler: NULL params") != std::string::npos);
 
-    // 2) Verbose=0 in 241-char dir -> mode: NON-VERBOSE
-    TEST_CHECK_VOID(writeBytesW(iniPath, "[Logging]\nVerbose=0\n"));
+    // 2) Explicit Verbose=1 in 241-char dir -> mode: VERBOSE
+    TEST_CHECK_VOID(writeBytesW(iniPath, "[Logging]\nVerbose=1\n"));
     mod = LoadLibraryW(dstDll.c_str());
     TEST_CHECK_VOID(mod != nullptr);
     auto isAvail = reinterpret_cast<PFN_IsUpscaleMethodAvailable>(GetProcAddress(mod, "IsUpscaleMethodAvailable"));
@@ -501,10 +501,10 @@ static bool testBoundary241AndInitOrder(const std::wstring& srcDllPath) {
     logBytes.clear();
     TEST_CHECK_VOID(readAllBytesW(logPath, logBytes));
     logStr.assign(logBytes.begin(), logBytes.end());
-    TEST_CHECK_VOID(logStr.find("mode: NON-VERBOSE") != std::string::npos);
+    TEST_CHECK_VOID(logStr.find("mode: VERBOSE") != std::string::npos);
 
     deleteTreeW(rootDir);
-    printf("[Test D] PASSED (dir=%zu, ini=%zu, empty-INI VERBOSE + Verbose=0 + InitUpscaler(nullptr)).\n",
+    printf("[Test D] PASSED (dir=%zu, ini=%zu, empty-INI NON-VERBOSE + Verbose=1 + InitUpscaler(nullptr)).\n",
            deepDir.size(), iniPath.size());
     return true;
 }
