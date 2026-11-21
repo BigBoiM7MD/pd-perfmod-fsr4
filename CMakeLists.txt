@@ -87,6 +87,14 @@ if(BUILD_TESTING)
     )
     add_dependencies(test_phase2_runtime_paths ${PROJECT_NAME} mock_ffx_loader)
 
+    add_executable(test_phase3_logging_timing tests/test_phase3_logging_timing.cpp)
+    target_include_directories(test_phase3_logging_timing PRIVATE include tests)
+    target_compile_options(test_phase3_logging_timing PRIVATE /EHsc)
+    set_target_properties(test_phase3_logging_timing PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+    add_dependencies(test_phase3_logging_timing ${PROJECT_NAME} mock_ffx_loader)
+
     if(CMAKE_CROSSCOMPILING)
         find_program(WINE_EXECUTABLE wine REQUIRED)
         add_test(NAME phase1_startup
@@ -112,6 +120,12 @@ if(BUILD_TESTING)
                 "$<TARGET_FILE:${PROJECT_NAME}>"
                 "$<TARGET_FILE:mock_ffx_loader>"
         )
+        add_test(NAME phase3_logging_timing
+            COMMAND "${CMAKE_COMMAND}" -E env WINEDEBUG=-all "${WINE_EXECUTABLE}"
+                "$<TARGET_FILE:test_phase3_logging_timing>"
+                "$<TARGET_FILE:${PROJECT_NAME}>"
+                "$<TARGET_FILE:mock_ffx_loader>"
+        )
     else()
         add_test(NAME phase1_startup
             COMMAND test_phase1_startup "$<TARGET_FILE:${PROJECT_NAME}>"
@@ -128,6 +142,11 @@ if(BUILD_TESTING)
         )
         add_test(NAME phase2_runtime_paths
             COMMAND test_phase2_runtime_paths
+                "$<TARGET_FILE:${PROJECT_NAME}>"
+                "$<TARGET_FILE:mock_ffx_loader>"
+        )
+        add_test(NAME phase3_logging_timing
+            COMMAND test_phase3_logging_timing
                 "$<TARGET_FILE:${PROJECT_NAME}>"
                 "$<TARGET_FILE:mock_ffx_loader>"
         )
