@@ -1,188 +1,84 @@
 # pd-perfmod-fsr4
 
-> Get **AMD FSR 4** upscaling in games that don't ship it natively — like
-> **Resident Evil** (RE Engine) titles via REFramework. Extract the files from the releases page in conjunction with REFramework's pd-upscaler's branch and go.
-> Works on **Windows** and **Linux / Proton** (Steam Deck included).
+An open-source `PDPerfPlugin.dll` (`UpscalerBasePlugin`) for [REFramework](https://github.com/praydog/REFramework) (RE Engine games) that runs **AMD FSR 4** on RDNA4 GPUs and falls back to **FSR 3.1** on older FSR-capable cards. Works on Windows and Linux / Proton.
 
-## TL;DR
+> **Transparency note:** The C++ code, bug fixes, and tests in this repo were written with AI. I don't code C++ myself — I set up the project, tested builds in-game on my own hardware (Windows and Linux/Proton), tracked down what broke, and directed what to fix or remove. Use it with that in mind.
 
-- Picks the **best FSR version your GPU supports** (FSR 4 on RDNA4 / RX 9000 series, FSR 3.1 on older FSR-capable cards).
-- Uses the **dedicated FSR 4 model** for each REFramework preset (Quality, Balanced, Performance, Ultra Performance, Native Res / DLAA), with optional DRS via INI.
-- **HDR is preserved** when the game runs in HDR.
-- Open source, drop-in `PDPerfPlugin.dll` (sole static import: `KERNEL32.dll`). No closed Nexus-only binaries.
+## Why this exists
 
-## What it is / What it does
+REFramework's existing upscaler plugin only exposes FSR 2/3, is closed source, and is only hosted on NexusMods. This is an open-source drop-in replacement for `PDPerfPlugin.dll` that loads AMD's FidelityFX runtime directly so RDNA4 users can run FSR 4 without needing OptiScaler or closed binaries.
 
-A REFramework plugin (`PDPerfPlugin.dll`, an `UpscalerBasePlugin`) that hooks the
-game's existing upscaler interface and dispatches through the real AMD
-FidelityFX (FFX) runtime. At load it:
+If you also want DLSS or XeSS, you can still use [OptiScaler](https://github.com/optiscaler/OptiScaler) — this plugin only handles AMD FSR.
 
-- **Auto-selects the newest FSR version your GPU actually supports** — FSR 4
-  (ML upscaler) on RDNA4, or FSR 3.1 automatically on older FSR-capable GPUs,
-  falling back through enumerated versions if needed.
-- **Logs the truthful running version + your GPU** — no hardcoded constants.
-  Logs `[INFO] pd-perfmod-fsr4 loaded (mode: NON-VERBOSE)` on load, followed by
-  e.g. `[INFO] FSR version: 4.1.1  |  GPU: AMD Radeon RX 9070 XT` once D3D12
-  initializes, and forwards key status/error lines to REFramework's log.
-- **Works on Windows and Linux / Proton** (including Steam Deck) with HDR
-  passthrough (see [Linux / Proton](#linux--proton)).
-- Writes a **live, tail-able log** you can watch while the game runs.
+## What it does
+
+- Loads `amd_fidelityfx_loader_dx12.dll` and `amd_fidelityfx_upscaler_dx12.dll` at runtime and picks the newest FSR version your GPU supports (trying older enumerated versions if the newest fails).
+- Uses the matching FSR 4 model for your REFramework preset (Quality, Balanced, Performance, Ultra Performance, and "Use Native Res (DLAA)"), with an optional INI switch for Dynamic Resolution Scaling (Model 4).
+- Supports Windows and Linux / Proton (`vkd3d-proton`), VR dual-eye rendering, and HDR passthrough.
+- Logs startup status, running FSR version, GPU name, and errors both to `pd-perfmod-fsr4.log` (live, unbuffered) and to REFramework's log via `InitLogDelegate`.
+- Links the MSVC runtime statically (`/MT`) with `KERNEL32.dll` as its only static DLL import so it doesn't fail to load due to missing VC++ redistributables.
 
 ## Install
 
-**Quick start**
+1. Install [REFramework](https://github.com/praydog/REFramework) (`pd-upscaler` branch / build with `TemporalUpscaler`).
+2. Drop the files into the game folder next to the game's `.exe` (same folder as `dinput8.dll`):
+   - `PDPerfPlugin.dll`
+   - `amd_fidelityfx_loader_dx12.dll` (required, from AMD FidelityFX SDK / driver runtime)
+   - `amd_fidelityfx_upscaler_dx12.dll` (required)
+   - `LICENSE-AMD-FSR.md` (included in release zips)
+3. Launch the game. `pd-perfmod-fsr4.ini` and `pd-perfmod-fsr4.log` are created next to the DLL automatically.
 
-1. Install [REFramework](https://github.com/praydog/REFramework) for your game.
-2. Copy **all** files from the package into the game folder (next to
-   `dinput8.dll` / REFramework's `reframework/` dir). The two `amd_fidelityfx_*`
-   DLLs must sit next to the game `.exe`.
-3. Launch the game. The startup log shows the plugin mode and the active FSR version + GPU.
-
-**Details**
-
-- The two `amd_fidelityfx_*` DLLs are **required** — the plugin loads them at
-  runtime. If they're missing you'll get a black screen and a log line
-  `FFX loader NOT FOUND … black screen`.
-- (Optional) For DLSS/XeSS too, see [OptiScaler](#want-dlss--xess-too-use-optiscaler).
-
-## Want DLSS / XeSS too? Use OptiScaler
-
-If you want DLSS and/or XeSS in addition to (or instead of) FSR, run
-**[OptiScaler](https://github.com/optiscaler/OptiScaler)** alongside this mod.
-OptiScaler swaps the underlying upscaler backend (it can present
-DLSS/XeSS/FSR to the game); this plugin is the FSR path. They are complementary:
-install REFramework + this plugin for FSR4, and add OptiScaler if you also want
-DLSS/XeSS selection.
-
-## Why this mod exists
-
-The existing REFramework upscaler plugin does **not** support FSR 4 — it only
-exposes FSR 2/3 by default, so RDNA4 owners can't get the newer ML upscaler
-through it. Worse, that original plugin is **closed source** and only
-distributed through NexusMods, so it can't be inspected, built, or extended by
-the community.
-
-This project is an **open-source** reimplementation of the `PDPerfPlugin`
-interface that adds FSR 4 (with automatic FSR 3.1 fallback) and is freely
-available in source form. The goal: bring FSR 4 to these games without
-depending on a closed, Nexus-only binary.
-
-## Package contents
-
-The distributable `pd-perfmod-fsr4-v0.2.0.zip` contains:
-
-- `PDPerfPlugin.dll` — the plugin (built from this repo)
-- `amd_fidelityfx_loader_dx12.dll` — AMD FSR loader (required; loaded at runtime)
-- `amd_fidelityfx_upscaler_dx12.dll` — FSR4 upscaler payload (required)
-- `pd-perfmod-fsr4.ini` — settings (created automatically if missing)
-- `pd-perfmod-fsr4.log` — runtime log (created next to the DLL on first load)
-- `LICENSE-AMD-FSR.md` — AMD FidelityFX SDK redistribution license
-
-If you built from source instead of using the zip, copy your
-`build/Release/PDPerfPlugin.dll` plus the two `amd_fidelityfx_*` DLLs (from a
-FidelityFX SDK / AMD runtime drop) into the game folder.
+If the two `amd_fidelityfx_*` DLLs are missing, upscaling won't initialize and the log will tell you which file couldn't be loaded.
 
 ## Settings (`pd-perfmod-fsr4.ini`)
 
 ```ini
 [Logging]
-Verbose=0      ; 0 = NON-VERBOSE default (version + GPU + errors only)
-               ; 1 = VERBOSE (also lists every supported FSR version + internal steps)
+Verbose=0      ; 0 = default (startup, active FSR version + GPU, errors only)
+               ; 1 = verbose (all detected FSR versions + internal steps)
 
 [Backend]
-; DynamicResolution: controls FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION.
-; 0 = off (default): FSR 4 selects the dedicated preset model matching your
-;     REFramework preset (Model 0 Native AA / 1 Quality / 2 Balanced /
-;     3 Performance / 5 Ultra Performance). Toggling "Use Native Res (DLAA)"
-;     recreates the FFX context cleanly on Model 0.
-; 1 = on: enables Dynamic Resolution Scaling (FSR 4 Model 4 / DRS) so games
-;     that change render resolution every frame avoid context recreation.
+; 0 = off (default): FSR 4 picks the dedicated model for your REFramework preset
+;     (Model 0 Native AA / 1 Quality / 2 Balanced / 3 Performance / 5 Ultra Performance).
+;     Toggling "Use Native Res (DLAA)" in REFramework switches cleanly to Model 0.
+; 1 = on: enables FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION (FSR 4 Model 4 / DRS)
+;     for games that vary render resolution every frame.
 DynamicResolution=0
 ```
 
-**Sharpness** is controlled from REFramework's upscaler UI, *not* the INI:
+Restart the game after editing the INI.
 
-- **"Sharpness" toggle** — turn ON to enable sharpening.
-- **"Sharpness Amount" slider (0.0 – 5.0)** — maps **linearly** to FSR strength
-  (`0` → off, `2.5` → medium `0.5`, `5.0` → maximum `1.0`).
-- The toggle **alone does nothing** — you must also raise the Amount slider
-  above `0`. `0` means no sharpening.
+**Sharpness** is controlled in REFramework's upscaler menu:
+- Turn **Sharpness** on and raise **Sharpness Amount** (`0.0 – 5.0`, mapped linearly to FSR's `0.0 – 1.0`).
+- Leaving the slider at `0` means no sharpening even if the toggle is checked.
 
-Change any setting and restart the game to apply.
+## Linux / Proton notes
 
-## Linux / Proton
+- Works under Proton / Proton-GE with `vkd3d-proton`.
+- **HDR:** HDR surfaces are passed through untouched, but REFramework currently passes `isContentHDR = false` to upscaler plugins, so FSR runs without HDR tone mapping (passthrough only — fixing that requires a REFramework change).
+- **Crash safety:** Startup and per-frame calls are wrapped under `/EHa` so loader or D3D12 failures disable the plugin instead of taking REFramework down.
 
-FSR4 (via the AMD loader) **runs on newer Proton / Proton-GE with vkd3d-proton** — it is
-not Windows-only.
-
-- **HDR is preserved.** When the game runs in HDR, the plugin preserves the HDR
-  surface end-to-end so HDR colors pass through untouched.
-  - *Caveat:* REFramework currently reports the game as SDR to the upscaler
-    (`isContentHDR = false`), so FSR does **not** apply HDR-specific tone mapping
-    — you get HDR **passthrough**, not FSR HDR tone mapping. Fixing that needs a
-    REFramework change, outside this plugin.
-- **Crash safety.** If anything fails at load (missing loader DLL, etc.), the
-  plugin disables itself cleanly — the game falls back to its own upscaler
-  instead of taking REFramework down.
-
-If FSR4 won't start under Proton, the log will name the exact failing call —
-send that line over.
-
-## Reading the log live
-
-The log is written line-by-line and is readable while the game runs. To watch
-it update in real time:
+## Watching the log live
 
 ```powershell
 Get-Content "path\to\pd-perfmod-fsr4.log" -Wait -Tail 20
 ```
 
-(Notepad does not auto-refresh — reopen the file, or use the command above.)
+## What this plugin is not
 
-## What this plugin is NOT
-
-- It only provides **AMD FSR**. It does not, by itself, add NVIDIA DLSS or Intel
-  XeSS. (For those, see the OptiScaler note above.)
-- The on-screen upscaler UI you see in a REFramework game is drawn by
-  **REFramework itself**, not by this plugin — so any UI/overlay behavior you
-  attribute to "the upscaler" is REFramework's. (The in-game HUD/UI is also
-  upscaled by REFramework's upscaler path — that's a REFramework behavior, not
-  ours.)
-- It does **not** apply FSR HDR tone mapping (see the Linux/HDR caveat above).
-
-## How it works
-
-- **FSR 4 first** — at runtime the plugin loads the AMD FidelityFX loader
-  (`amd_fidelityfx_loader_dx12.dll`) plus the FSR4 upscaler payload through the
-  FFX API. The FFX structs are declared locally in the plugin; no SDK headers are
-  compiled in.
-- **No silent fallback to the original plugin.** If the FSR loader/payload files
-  are missing, the upscaler fails to initialize and you'll see a black screen —
-  the log tells you exactly which file to drop next to the game `.exe`.
-- The plugin builds as a SHARED library named `PDPerfPlugin` (no `lib` prefix)
-  using the static MSVC runtime (`/MT`), resolves `dxgi.dll` dynamically at
-  runtime (sole static import: `KERNEL32.dll`), enables `/EHa` so both C++ and
-  SEH exceptions are caught, and forwards key status/error log lines to
-  REFramework via `InitLogDelegate`.
-- Uses a 3-slot D3D12 command allocator + fence ring with `SRWLOCK`
-  synchronization, real per-context `QueryPerformanceCounter` frame deltas, and
-  VR dual-eye multipass support (`execute = false` recording).
+- It does not provide DLSS or XeSS (AMD FSR only).
+- The upscaler UI and whether the game's HUD gets upscaled are controlled by REFramework, not this plugin.
+- It does not add FSR HDR tone mapping while REFramework reports `isContentHDR = false`.
 
 ## Building from source
 
-You do **not** need the FidelityFX SDK to compile. The plugin loads the AMD
-loader DLL at runtime via `LoadLibrary` and declares the FFX API structs locally,
-so there are no FFX SDK include/lib paths to configure.
+No FidelityFX SDK headers or libs are needed to build — the FFX C structs are declared locally and the AMD loader DLL is loaded at runtime.
 
 ### Prerequisites
+- Windows 10 / 11 with Visual Studio 2022 (*Desktop development with C++*) and CMake >= 3.15
+- (Or Linux cross-compilation with `clang-cl` + `xwin` and `wine` for tests)
 
-- Windows 10 / 11
-- **Visual Studio 2022** (Community is fine) with the *Desktop development with C++* workload
-- **CMake** >= 3.15 (bundled with VS2022, or standalone)
-- **Git**
-
-### Steps
-
+### Build & test (Windows)
 ```bash
 git clone https://github.com/BigBoiM7MD/pd-perfmod-fsr4.git
 cd pd-perfmod-fsr4
@@ -191,34 +87,17 @@ cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-(For single-config generators such as Ninja/Makefiles, run `ctest --test-dir build --output-on-failure`.)
+Output: `build/Release/PDPerfPlugin.dll` (single-config generators output `build/PDPerfPlugin.dll` and run `ctest --test-dir build --output-on-failure`).
 
-### Output
+## Status & changelog
 
-- `build/Release/PDPerfPlugin.dll` — the plugin (`build/` is gitignored).
-- Also produced: `PDPerfPlugin.lib` / `PDPerfPlugin.exp` (link artifacts; not needed by users).
+Current release: **v0.2.0**
+- Plain summary: [CHANGELOG-SIMPLE.md](CHANGELOG-SIMPLE.md)
+- Technical details: [CHANGELOG.md](CHANGELOG.md)
+- Bug/fix history: [DEVELOPMENT_JOURNAL.md](DEVELOPMENT_JOURNAL.md)
+
+Tested in-game on RDNA4 (FSR 4.1.1) on Linux/Proton. The FSR 3.1 fallback path is covered by mock tests and ABI checks, not yet tested on non-RDNA4 hardware.
 
 ## License
 
-The AMD FidelityFX loader, upscaler payload, and FSR SDK are © Advanced Micro
-Devices, Inc. and redistributed under the AMD FidelityFX SDK license
-(`LICENSE-AMD-FSR.md`): **binary redistribution is permitted, free of charge,
-provided the copyright + permission notice are included** — which they are, in
-that file. Do not reverse-engineer, decompile, or disassemble the AMD binaries,
-and do not imply AMD endorsement of this mod.
-
-## Status
-
-Current release: **v0.2.0** — see [CHANGELOG.md](CHANGELOG.md) for the full list
-of fixes and hardening changes in this release.
-
-Verified on RDNA4 (FSR4 4.1.1) on the author's hardware. The FSR 3.1 fallback
-path is verified at the logic/ABI level; confirm on real unsupported hardware
-before relying on it.
-
-## AI development disclaimer
-
-This mod was developed with the assistance of AI tools. It is provided as-is,
-without warranty of any kind — use at your own risk. The author is not affiliated
-with AMD, Capcom, or the REFramework / OptiScaler projects, and none of them
-endorse this mod.
+Plugin source code is licensed under [LICENSE](LICENSE). The AMD FidelityFX loader and upscaler DLLs are © Advanced Micro Devices, Inc. and redistributed under the AMD FidelityFX SDK license (`LICENSE-AMD-FSR.md`). This project is not affiliated with or endorsed by AMD, Capcom, REFramework, or OptiScaler.

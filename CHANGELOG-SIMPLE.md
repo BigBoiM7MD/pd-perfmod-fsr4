@@ -1,49 +1,34 @@
-# What's New in v0.2.0 — plain version
+# Changelog (Simple)
 
-This is the easy-to-read summary. For the full technical details, see
-[CHANGELOG.md](CHANGELOG.md).
-
----
-
-## 1. Fixes random launch hangs & crashes with REFramework
-Previously, launching the game could occasionally hang or crash during startup
-because of unsafe work inside `DllMain`, missing Visual C++ runtime DLLs, or
-race conditions during initialization. `PDPerfPlugin.dll` now links its runtime
-statically (depends only on `KERNEL32.dll`), initializes safely across threads,
-and handles long/Unicode game install folders cleanly.
-
-## 2. Correct FSR4 resource handling, smoother pacing & crash safety
-- Fixed a low-level FidelityFX API mismatch where texture formats and types were
-  passed as raw DirectX numbers instead of FFX values (which was also the root
-  cause behind scrambled RGBA colors on Linux/Proton).
-- Upgraded internal GPU command submission from a single stalling allocator to a
-  triple-buffered ring with thread-safe locking and clean GPU teardown when
-  switching resolutions or closing the game.
-- Added real per-frame delta timing (`QueryPerformanceCounter`) instead of a
-  hardcoded `16.6 ms` value.
-
-## 3. Better VR, DLAA, multi-version fallback & faster Linux/Proton output
-- **VR multipass:** left-eye passes (`execute = false`) now record properly and
-  submit together with the right eye instead of being skipped.
-- **Preset-accurate FSR 4 models & Native Res (DLAA):** each REFramework preset
-  (Quality, Balanced, Performance, Ultra Performance) and the "Use Native Res
-  (DLAA)" toggle now uses its dedicated FSR 4 model instead of the generic DRS
-  model. If a game uses dynamic resolution scaling, you can opt into DRS via
-  `DynamicResolution=1` under `[Backend]` in `pd-perfmod-fsr4.ini`.
-- **Automatic version fallback:** if the newest detected FSR version fails to
-  initialize on your driver, the plugin automatically tries older available FSR
-  versions before giving up.
-- **Linux / Proton:** now that texture format mapping is fixed, SDR outputs
-  proper colors natively in `R8G8B8A8` with the extra R/B swap compute shader
-  pass removed completely (saving VRAM and GPU work every frame).
-
-## 4. Cleaner logs inside REFramework
-- Important startup lines and errors now appear directly in REFramework's log
-  via `InitLogDelegate`, and `Verbose=0` is now truly the default (matching the
-  README).
+Plain-English summary of what changed in each release. For technical details, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-Install is the same as before: drop `PDPerfPlugin.dll` and the two
-`amd_fidelityfx_*` DLLs next to the game's `.exe` (same folder as `dinput8.dll`),
-and launch. See the README for the full install guide.
+## v0.2.0 — 2026-11-22
+
+- **Fixed random launch hangs and crashes with REFramework.** Starting a game with the plugin installed shouldn't randomly freeze or fail to open anymore, including in long or non-ASCII install folders and on systems without extra Visual C++ runtimes installed.
+- **Fixed FSR 4 using the wrong model.** Previously, FSR 4 was stuck on Model 4 (the Dynamic Resolution Scaling model) no matter which preset you picked. Now Quality, Balanced, Performance, Ultra Performance, and "Use Native Res (DLAA)" each use their own FSR 4 model. If a game actually uses dynamic resolution, you can turn DRS back on with `DynamicResolution=1` in `pd-perfmod-fsr4.ini`.
+- **Removed the Linux/Proton color-swap workaround.** Fixing an underlying texture format bug made Linux/Proton colors work natively without needing the extra red/blue swap shader pass.
+- **Fixed VR dual-eye upscaling.** Left-eye frames are no longer skipped when REFramework batches both eyes together.
+- **Better fallback if FSR 4 fails to start.** If the newest detected FSR version fails to initialize on your GPU/driver, the plugin now tries older supported FSR versions before giving up.
+- **Smoother frame handling and real frame timing.** Replaced the single-frame GPU wait and hardcoded `16.6 ms` frame delta with triple-buffered submission and real frame timing, and fixed cleanup crashes when changing settings or closing the game.
+- **Logs show up in REFramework.** Important startup lines and errors are now forwarded to REFramework's own log, and `Verbose=0` is actually the default.
+
+---
+
+## v0.1.1 — 2026-07-10
+
+- **Fixed crashes on load under Linux / Proton.** Errors during startup now disable the plugin instead of crashing REFramework.
+- **Fixed swapped red/blue colors on Linux / Proton** (using a temporary swap shader pass, later replaced by a proper format fix in `v0.2.0`).
+- **Stopped forcing 8-bit output on HDR games** under Linux / Proton so HDR containers are preserved instead of downgraded. (REFramework still tells the plugin the game is SDR, so there is no FSR HDR tone mapping.)
+- **Fixed the sharpness slider** in REFramework so `0` is off and `0–5` scales smoothly to FSR's `0–1` range.
+
+---
+
+## v0.1.0
+
+- First release: FSR 4 upscaling through REFramework with automatic FSR 3.1 fallback on older GPUs, version/GPU logging, and a live log file next to the DLL.
+
+---
+
+Install is the same across versions: put `PDPerfPlugin.dll`, `amd_fidelityfx_loader_dx12.dll`, and `amd_fidelityfx_upscaler_dx12.dll` next to the game's `.exe` (same folder as `dinput8.dll`). See [README.md](README.md) for details.

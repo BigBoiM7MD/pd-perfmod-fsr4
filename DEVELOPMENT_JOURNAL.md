@@ -1,155 +1,72 @@
 # Development Journal — pd-perfmod-fsr4
 
-A running account of the problems we hit while building this plugin and how we
-solved them. Written for anyone who wants to understand *why* the code looks the
-way it does — the bug reports, the wrong turns, and the final fixes.
+Notes on bugs hit while testing this plugin in-game and how they were tracked down and fixed. The code and fixes were written with AI while the repo owner tested builds on real hardware and reported what actually happened in-game.
 
 ---
 
-## The starting point
+## 1. Initial Linux / Proton color bug (the red/blue swap detour)
 
-We had a working **Windows** build: FSR4 upscaling through REFramework,
-auto-selecting the best FSR version, with truthful version/GPU logging and a
-crash-safe init path. The hard part began the moment we tried it on
-**Linux / Proton**.
+After the initial Windows build worked, testing under Linux / Proton showed broken colors:
 
----
+- Trying `DXGI_FORMAT_R8G8B8A8_UNORM` (`28`) scrambled every color channel.
+- Trying `DXGI_FORMAT_B8G8R8A8_UNORM` (`87`) gave a clean red/blue channel swap.
+- Trying HDR formats (`24` = 10-bit, `10` = float16) didn't look right either — one came out scrambled and the other had the same red/blue swap issue.
 
-## 1. Colors were wrong on Linux (the red/blue swap)
-
-On Proton the game's present backbuffer is **BGRA**, but the backbuffer's
-*reported* format says **RGBA**. FSR always writes RGBA-ordered bytes, so the
-final image came out with **red and blue swapped**.
-
-**Fix attempt #1:** a tiny compute shader that reorders R↔B (RGBA → BGRA).
-Added in `ceacdfb`.
+In `v0.1.1`, the plugin worked around SDR by defaulting Linux to BGRA (`87`) plus a compute shader (`rb_swap.hlsl`) to swap R and B back, while trying to pass HDR containers (`24`/`10`) through without forcing 8-bit.
 
 ---
 
-## 2. The wrong revert
+## 2. Sharpness slider (`v0.1.1`)
 
-A later test on format `87` looked… fine? I misread the result and concluded the
-swap wasn't needed, so I **reverted** it (`0f5cc72`) and forced Linux back to
-RGBA (`28`). That was a mistake — the `87` test had *already* had the swap
-applied; without it, `28` was actually broken.
-
-**Fix:** re-added the swap (`5507416`), then broadened the gate to cover both
-`28` and `87` and documented the vkd3d-source reason (`dc51175`).
+REFramework's sharpness slider runs `0–5` (meant for FSR3), while FFX expects `0–1`. Early attempts clamped it or injected a fallback value when set to `0`, which made the slider feel broken. It was changed to a plain linear map (`value / 5.0`), with `0` meaning off.
 
 ---
 
-## 3. Real in-game proof (stop guessing)
+## 3. Stale DLL in the game folder (`v0.1.1`)
 
-Instead of reasoning in circles, we ran **A/B tests in-game** and read the logs:
-
-| Format | Result |
-|--------|--------|
-| `28` (RGBA)  | **all channels scrambled** — wrong present format |
-| `87` (BGRA)  | **only a clean red/blue swap** — correct once the swap pass reorders bytes |
-| `24` / `10` (HDR) | **clean colors** — different (converting) copy path |
-
-That settled it: **Linux SDR default = `87` + swap.** Commits `29250bd`,
-`137b2f3`.
+A `NON-VERBOSE` log once showed verbose-only lines because the build output wasn't copied over the older `PDPerfPlugin.dll` in the game folder. Lesson: always check the timestamp of the deployed DLL when testing.
 
 ---
 
-## 4. HDR — the 8-bit trap
+## 4. Startup hangs and crashes with REFramework (`v0.2.0`)
 
-Someone asked: *does HDR work with `87`?* **No.** `87` is 8-bit; HDR games use a
-10-bit (`24`) or float16 (`10`) backbuffer. Forcing `87` on HDR would downgrade
-precision *and* recolor the image.
+Launching a game with REFramework would sometimes hang or fail to start at all. A full code audit found several startup bugs:
 
-**Fix:** under Proton, if the backbuffer is HDR-capable (`24`/`10`), **keep that
-container and skip the swap** (the converting copy path handles it correctly).
-Commit `5fc879c`.
+- `DllMain` was doing `<iostream>` / `std::cout` and path calls under the Windows OS loader lock.
+- `PDPerfPlugin.dll` dynamically linked the MSVC runtime (`/MD`) and `d3d12.lib`/`dxgi.lib`, adding load-time dependencies.
+- One-time init (`initialize()` and `Logging::init()`) had no synchronization across threads, and path handling used 260-char ANSI buffers.
 
-**Caveat we can't fix from here:** REFramework hardcodes `isContentHDR = false`,
-so FSR itself runs **SDR**. We preserve the HDR *container* (passthrough), but
-there's no FSR HDR tone mapping until REFramework is patched.
+These were fixed by stripping `DllMain` down to `DisableThreadLibraryCalls`, switching to static `/MT` (only `KERNEL32.dll` imported statically), using `InitOnceExecuteOnce`, and moving path resolution to wide-char helpers.
 
 ---
 
-## 5. Sharpness — the slider that did nothing
+## 5. The real cause of the Linux color bug (`v0.2.0`)
 
-REFramework exposes a **"Sharpness" toggle** plus a **"Sharpness Amount" slider
-(0–5)** meant for FSR3. Two problems surfaced:
+The audit also revealed *why* format `28` (`R8G8B8A8_UNORM`) and the HDR formats (`10`, `24`) were broken back in section 1:
 
-- Toggle ON + slider at `0` → `0` sharpening → looked like a **dead switch**.
-  I added a `0.8` fallback. Too strong.
-- FSR4's API expects `0–1`, not `0–5`. A hard clamp crushed the slider into the
-  bottom fifth.
+`makeResource()` was passing raw `DXGI_FORMAT` numbers straight into `FfxApiResourceDescription.format` instead of converting them to `FfxApiSurfaceFormat` (`0..39`). In `FfxApiSurfaceFormat`:
 
-**Iterations:**
-- `0.8` → `0.4` fallback (`c4d748c`) — gentler, but still a hidden default.
-- Normalize `0–5 → 0–1` (`5ebb07a`) — but split mapping was confusing.
-- Fully **linear** `0–5 → 0–1` (`9c6bf76`) — whole slider tracks RCAS evenly.
-- Finally **removed the fallback** so `0` = off and the toggle respects the
-  slider (`4411916`). Now it's honest and linear.
+- `28` (`DXGI_FORMAT_R8G8B8A8_UNORM`) collided with `R32_FLOAT` instead of `R8G8B8A8_UNORM` (`10`).
+- `10` (`DXGI_FORMAT_R16G16B16A16_FLOAT`) collided with `R8G8B8A8_UNORM` instead of `R16G16B16A16_FLOAT` (`4`).
+- `24` (`DXGI_FORMAT_R10G10B10A2_UNORM`) collided with `R16_SNORM` instead of `R10G10B10A2_UNORM` (`17`).
+- `87` (`DXGI_FORMAT_B8G8R8A8_UNORM`) was out of bounds (`> 39`), so the runtime ignored it and fell back to the D3D12 resource desc, which is why `87` only had a red/blue swap while the other formats broke.
+
+Once `makeResource()` mapped D3D12 dimensions, DXGI formats, and usage flags to the real FFX enums, in-game testing on Proton confirmed `R8G8B8A8_UNORM` gave proper colors with `RBSwap=0` (while enabling the swap actually broke colors). The entire R/B swap compute shader pass was deleted.
 
 ---
 
-## 6. The ghost log line (stale DLL)
+## 6. FSR 4 stuck on Model 4 (DRS) (`v0.2.0`)
 
-A user pasted a **NON-VERBOSE** log that contained a **verbose-only** line
-(`GPU supports FSR version 3.1.5`). Impossible from source — that line is gated
-behind the *same* verbose flag that prints `NON-VERBOSE`.
+Testing with OptiScaler's overlay showed FSR 4 was using **Model 4 (DRS)** even when picking fixed presets in REFramework. Two bugs caused this:
 
-**Root cause:** my build scripts only copied the DLL to `release/`, **never to
-the game folder**. The user had been testing a 9-minutes-older build from before
-the verbose guard existed.
+- `FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION` was always set with `maxRenderSize = displaySize`, telling FSR 4 to pick the DRS model regardless of preset.
+- `qualityLevel == 3` had been mapped to `1.0x` (DLAA), even though REFramework uses `3` for **Ultra Performance (`3.0x`)** and implements "Use Native Res (DLAA)" as a separate checkbox that passes `displaySize - 1` at evaluate time.
 
-**Fix:** deployed the fresh build directly to the game folder. **Lesson:** always
-verify the *deployed* binary's timestamp, not just the source.
+Fix: `FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION` now defaults to off (`[Backend] DynamicResolution=0`) with `maxRenderSize` sized to the active preset so FSR 4 picks Models 1/2/3/5 properly. Toggling "Use Native Res (DLAA)" recreates the FFX context once at `1.0x` for Model 0, and `DynamicResolution=1` opts back into Model 4 (DRS).
 
 ---
 
-## 7. The real root cause behind the Linux color bug (`v0.2.0`)
+## Upstream REFramework limitations (outside this plugin)
 
-During the `v0.2.0` audit we discovered *why* format `28` (`DXGI_FORMAT_R8G8B8A8_UNORM`)
-had scrambled every channel back in section 3:
-
-`makeResource()` was passing raw `DXGI_FORMAT` values directly into
-`FfxApiResourceDescription.format` instead of mapping them to the FidelityFX
-`FfxApiSurfaceFormat` enum (`0..39`). In `FfxApiSurfaceFormat`, `28` is
-`FFX_API_SURFACE_FORMAT_R32_FLOAT` — not RGBA8 (`10`)! Format `87` (`BGRA8`)
-was out of bounds (`> 39`), so the runtime ignored it and fell back to the
-D3D12 resource desc, leaving only a clean R↔B swap that the compute shader had
-to undo.
-
-**Fix:** once `makeResource()` mapped `D3D12_RESOURCE_DIMENSION`, `DXGI_FORMAT`,
-and resource usage flags to the real FidelityFX SDK enums, `R8G8B8A8_UNORM`
-rendered with proper colors natively under Proton — letting us delete the entire
-R/B swap compute shader pass, staging texture, descriptor heap, and HLSL
-bytecode.
-
----
-
-## 8. Preset FSR 4 models vs. Model 4 (DRS) (`v0.2.0`)
-
-Setting `FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION` unconditionally with
-`maxRenderSize = displaySize` caused AMD's FSR 4 runtime to pick **Model 4
-(DRS)** for every preset instead of the dedicated per-preset ML models
-(Model 0 Native AA / 1 Quality / 2 Balanced / 3 Performance / 5 Ultra
-Performance).
-
-**Fix:** defaulted `[Backend] DynamicResolution=0` (omitting the DRS flag and
-sizing `maxRenderSize` to the active REFramework preset), restored
-`qualityLevel == 3` to Ultra Performance (`3.0x`), and added one-shot FFX
-context recreation in `evaluate()` when REFramework's `"Use Native Res (DLAA)"`
-toggle changes `renderSize` to `displaySize - 1` (snapping `maxRenderSize` to
-`displaySize` for Model 0 Native AA). Users who want DRS Model 4 can opt in via
-`DynamicResolution=1`.
-
----
-
-## Open items (REFramework-side, not our bugs)
-
-These are upstream REFramework behaviors we documented so users don't blame this
-plugin:
-
-- **HDR tone mapping off** — `isContentHDR` hardcoded `false`.
-- **Raw format-blind backbuffer copy** — no channel/format awareness.
-- **UI/HUD also gets upscaled** — REFramework's upscaler path includes the UI.
-- **Deadlock risk** in REFramework's wait path on some early-return paths.
-
-They don't block functionality; they're noted for transparency.
+- `isContentHDR` is hardcoded to `false`, so HDR is passthrough only (no FSR HDR tone mapping).
+- REFramework's upscaler path includes the game UI/HUD.

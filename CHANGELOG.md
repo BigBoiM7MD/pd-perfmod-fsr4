@@ -1,93 +1,58 @@
 # Changelog
 
-All notable changes to **pd-perfmod-fsr4** are documented here. This project
-follows a simple versioning scheme: `v0.x.y` for iterative releases.
+Technical changelog for **pd-perfmod-fsr4** (`v0.x.y`). For a plain-English summary, see [CHANGELOG-SIMPLE.md](CHANGELOG-SIMPLE.md).
 
 ---
 
-## [0.2.0] — 2026-11-22 (current)
-
-Major reliability, FFX ABI, D3D12 lifecycle, concurrency, and host-integration
-hardening release.
+## [0.2.0] — 2026-11-22
 
 ### Fixed
-- **Intermittent launch hangs/crashes with REFramework:**
-  - Stripped all `<iostream>` / `std::cout` / path I/O from `DllMain` (now strictly `DisableThreadLibraryCalls`), eliminating OS loader-lock deadlocks at startup.
-  - Switched `PDPerfPlugin.dll` to static CRT (`/MT` + `/EHa`) and dynamically resolved `CreateDXGIFactory1` so `PDPerfPlugin.dll` has only `KERNEL32.dll` as a static import (no `VCRUNTIME140` / `MSVCP140` / `d3d12` / `dxgi` load-time failures).
-  - Replaced unsynchronized one-time init in `initialize()` and `Logging::init()` with `InitOnceExecuteOnce`, deferring startup banner logging until after `InitOnceExecuteOnce` finishes.
-  - Replaced `MAX_PATH` ANSI path buffers with shared wide-char (`std::wstring`) helpers supporting non-ASCII and extended-length (`\\?\`) paths for INI, log, and `amd_fidelityfx_loader_dx12.dll` lookup (probing next to the DLL first).
-- **Safe fallback & COM ownership:**
-  - Hardened `SetupDirectX` and `FSR4Backend::setup()` input validation, partial-init rollbacks, and device reference cleanup.
-  - Created `D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS` (`D3D12_RESOURCE_STATE_UNORDERED_ACCESS`) fallback textures (with `R8G8B8A8_UNORM` retry for non-UAV formats) on setup or context creation failure, and gated query/setter/release exports on `isAvailable()`.
-- **FidelityFX API ABI accuracy:**
-  - Fixed `makeResource()` to map `D3D12_RESOURCE_DIMENSION` -> `FfxApiResourceType`, `DXGI_FORMAT` -> `FfxApiSurfaceFormat` (`0..39` + depth/BGRAX), and D3D12 flags -> `FFX_API_RESOURCE_USAGE_*` (previously passing raw DXGI values caused `R8G8B8A8_UNORM = 28` to collide with `R32_FLOAT = 28`), backed by 11 compile-time `sizeof`/`offsetof` `static_assert`s.
-- **D3D12 lifecycle safety, concurrency & multi-frame submission:**
-  - Replaced single-allocator per-frame stalls with a 3-slot command allocator + fence-value ring (`kNumCmdSlots = 3`).
-  - Guarded `FSR4Backend::Impl` and `PDPerfPlugin` fallback state with non-nested `SRWLOCK`s, drained pending GPU fence work before releasing/overwriting contexts or tearing down, validated inputs before `cmdList->Reset()`, checked `cmdList->Close()` `HRESULT`, and recovered open internal command lists across early returns and SEH exceptions.
-- **VR multipass, DLAA, multi-version fallback & Linux R/B swap:**
-  - Wrapped `EvaluateUpscaler` and `SimpleEvaluate` under `/EHa` `try/catch`, isolated external `cmdList`s, and recorded dispatches when `execute == false` (submitting once when `execute == true`) for VR dual-eye multipass.
-  - Defaulted `FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION` to OFF (`[Backend] DynamicResolution=0`) and sized `maxRenderSize` to the active REFramework preset (`Performance` `2.0x` -> Model 3, `Balanced` `1.7x` -> Model 2, `Quality` `1.5x` -> Model 1, `Ultra Performance` `3.0x` -> Model 5) instead of forcing FSR 4 Model 4 (DRS). Toggling REFramework's `"Use Native Res (DLAA)"` cleanly recreates the FFX context at `1.0x` (Model 0 / Native AA), while setting `[Backend] DynamicResolution=1` opts into DRS (Model 4).
-  - Added sequential fallback across all enumerated FSR versions in `createContext()` if the newest version fails to initialize.
-  - With `FfxApiSurfaceFormat` fixed, Linux/Proton SDR outputs `R8G8B8A8_UNORM` (`28`) directly with correct colors — removing the redundant R/B swap compute pass, staging texture, descriptor heap, and compiled HLSL bytecode entirely.
-- **Host logging, frame timing & defaults:**
-  - Wired `InitLogDelegate` to forward `Logging::always` and `Logging::error` messages to REFramework outside `Logging::s_lock` under SEH/C++ guards.
-  - Replaced hardcoded `16.6f` `frameTimeDelta` with real per-context clamped (`[0.1, 250.0]` ms) `QueryPerformanceCounter` elapsed milliseconds.
-  - Aligned `Logging.cpp` and `README.md` on the `Verbose=0` (`NON-VERBOSE`) default.
+- **Startup hangs and crashes with REFramework:**
+  - Removed `<iostream>`, `std::cout`, and path lookup from `DllMain` (now only calls `DisableThreadLibraryCalls`), preventing Windows loader-lock deadlocks.
+  - Switched `PDPerfPlugin.dll` to the static MSVC runtime (`/MT` with `/EHa`) and loaded `CreateDXGIFactory1` dynamically so `KERNEL32.dll` is the only static DLL import.
+  - Replaced unsynchronized one-time setup in `initialize()` and `Logging::init()` with `InitOnceExecuteOnce`, emitting the startup log line after init finishes to avoid re-entrant deadlocks.
+  - Replaced fixed 260-char ANSI path buffers with wide-char (`std::wstring`) helpers supporting Unicode and `\\?\` paths for the INI, log, and loader DLL (probing next to `PDPerfPlugin.dll` first).
+- **Init validation and safe fallback:**
+  - Validated `SetupDirectX` / `FSR4Backend::setup()` inputs, added partial-init rollback, and fixed `ID3D12Device` reference cleanup.
+  - Changed fallback textures to `D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS` / `D3D12_RESOURCE_STATE_UNORDERED_ACCESS` (retrying `R8G8B8A8_UNORM` on non-UAV formats) and gated query/release exports on `isAvailable()`.
+- **FidelityFX API struct and enum mapping:**
+  - Fixed `makeResource()` to translate `D3D12_RESOURCE_DIMENSION` to `FfxApiResourceType`, `DXGI_FORMAT` to `FfxApiSurfaceFormat` (`0..39` + depth formats), and D3D12 flags to `FFX_API_RESOURCE_USAGE_*`. Previously, raw `DXGI_FORMAT_R8G8B8A8_UNORM` (`28`) was read by FFX as `R32_FLOAT` (`28`). Added compile-time `sizeof`/`offsetof` `static_assert` checks.
+- **D3D12 lifetime, locking, and multi-frame submission:**
+  - Replaced the single per-frame stalling command allocator with a 3-slot allocator and fence ring.
+  - Added `SRWLOCK` protection around `FSR4Backend::Impl` and `PDPerfPlugin` fallback state, waited on pending GPU fence work before destroying/overwriting contexts, validated inputs before `cmdList->Reset()`, checked `cmdList->Close()`, and closed stranded internal command lists on error/SEH paths.
+- **FSR 4 model selection, VR multipass, and version fallback:**
+  - Wrapped `EvaluateUpscaler` and `SimpleEvaluate` in `/EHa` `try/catch`, stopped touching caller-provided command lists, and recorded dispatches when `execute == false` (submitting once on `execute == true`) for VR dual-eye rendering.
+  - Defaulted `FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION` to OFF (`[Backend] DynamicResolution=0`) and sized `maxRenderSize` to the active REFramework preset (`Performance` `2.0x` -> Model 3, `Balanced` `1.7x` -> Model 2, `Quality` `1.5x` -> Model 1, `Ultra Performance` `3.0x` -> Model 5) instead of forcing Model 4 (DRS). Toggling REFramework's "Use Native Res (DLAA)" recreates the FFX context at `1.0x` (Model 0). Setting `DynamicResolution=1` enables DRS (Model 4).
+  - Kept all enumerated FFX versions and tried them sequentially in `createContext()` if the newest fails.
+- **Host logging, frame timing, and defaults:**
+  - Wired `InitLogDelegate` to forward `Logging::always` and `Logging::error` lines to REFramework outside `Logging::s_lock` under SEH/C++ guards.
+  - Replaced hardcoded `16.6f` `frameTimeDelta` with per-context `QueryPerformanceCounter` deltas clamped to `[0.1, 250.0]` ms.
+  - Fixed `Logging.cpp` so `Verbose=0` is actually the default (matching `README.md`).
 
 ### Changed
-- Removed the obsolete R/B swap compute shader pass (`rb_swap.hlsl` / `rb_swap_cs.h`) and dead code (`logCallback`, `ffxGetResourceFn`, `<map>`, `s_jitterLogged`, `FSR4_DIAGNOSTICS`).
-- Raised minimum CMake version to `3.15` (`CMP0091` static `/MT` enforcement) and added a 5-suite PE64 Wine CTest harness (`phase1_startup`, `phase1_fallback_com`, `phase2_abi_lifecycle`, `phase2_runtime_paths`, `phase3_logging_timing`).
+- Removed the Linux/Proton R/B swap compute shader pass (`rb_swap.hlsl` / `rb_swap_cs.h`) now that fixing `FfxApiSurfaceFormat` makes `R8G8B8A8_UNORM` output proper colors directly.
+- Removed unused code (`logCallback`, `ffxGetResourceFn`, `<map>`, `s_jitterLogged`, `FSR4_DIAGNOSTICS`).
+- Raised minimum CMake version to `3.15` for `/MT` (`CMP0091`) and added a CTest suite targeting PE64 under Wine.
 
 ---
 
 ## [0.1.1] — 2026-07-10
 
-The "bugfix run" release. Focus: correct colors and honest controls on every
-platform.
-
 ### Fixed
-- **Linux/Proton: mod failed to open (REFramework crash on load).** The
-  load-time exports (`SetupDirectX` / `InitUpscaler` / `SimpleInit`) were not
-  exception-guarded, so a failure inside the D3D12/DXGI/FFX calls escaped into
-  REFramework and **crashed REFramework** (the plugin wouldn't open at all under
-  Wine/Proton). The init path is now wrapped in the same `try/catch` as
-  `evaluate()`, so any failure cleanly disables FSR4 (game falls back to its own
-  upscaler) instead of taking REFramework down. On native Windows behavior is
-  unchanged.
-- **Linux/Proton colors:** auto-output BGRA (`87`) with the R/B swap pass, so
-  SDR images are color-correct. The old RGBA (`28`) default scrambled all
-  channels and is no longer used.
-- **HDR on Linux:** preserve the HDR container (`24` = 10-bit, `10` = float16)
-  and skip the swap on the HDR path, so HDR colors pass through cleanly.
-- **Sharpness slider:** now maps the REFramework `0–5` slider **linearly** to
-  FSR's `0–1` RCAS strength. `0` = off (no hidden fallback); the toggle
-  respects the slider.
-- **Swap-skip warning:** logs a one-time warning if the R/B swap is skipped
-  (non-null destination) so color bugs aren't mysterious.
-
-### Changed
-- Linux auto-default output format is now `87` (was `28`, which was broken).
+- Wrapped `SetupDirectX`, `InitUpscaler`, and `SimpleInit` in `try/catch` so startup failures under Wine/Proton disable FSR4 instead of crashing REFramework.
+- Worked around swapped red/blue SDR colors on Linux/Proton by outputting BGRA (`87`) with a compute-shader R/B swap pass (later removed in `v0.2.0` once the format mapping bug was found).
+- Preserved HDR containers (`R10G10B10A2_UNORM` / `R16G16B16A16_FLOAT`) on Linux/Proton instead of forcing 8-bit output.
+- Mapped REFramework's `0–5` sharpness slider linearly to FSR's `0–1` RCAS range and removed the hidden non-zero fallback when set to `0`.
+- Logged a one-time warning when the swap pass was skipped due to a non-null destination.
 
 ### Notes
-- REFramework still reports the game as SDR to FSR (`isContentHDR = false`), so
-  there is **no FSR HDR tone mapping yet** — HDR is passthrough only. Fixing that
-  requires a REFramework change.
-- All changes are fail-safe: a bad format or skipped swap logs and continues
-  instead of crashing.
+- REFramework still passes `isContentHDR = false`, so HDR is passthrough only (no FSR HDR tone mapping).
 
 ---
 
 ## [0.1.0] — Initial release
 
-First public version.
-
 ### Added
-- FSR4 upscaling through REFramework, with **automatic FSR 3.1 fallback** for
-  non-FSR4 GPUs (picks the newest version the GPU actually supports at load).
-- **Truthful version + GPU logging** — no hardcoded constants.
-- **Exception-guarded init path** — a load-time failure (missing loader DLL,
-  etc.) cleanly disables FSR4 instead of crashing REFramework / the game.
-- **Live, tail-able log** (unbuffered, written next to the DLL).
-
-### Notes
-- Correct Linux color handling and HDR container support landed in `0.1.1`.
+- Initial FSR 4 `PDPerfPlugin.dll` implementation for REFramework with automatic FSR 3.1 fallback on older GPUs.
+- Runtime version + GPU logging and unbuffered log output next to the DLL.
+- Exception-guarded evaluation path.
