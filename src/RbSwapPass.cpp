@@ -197,17 +197,12 @@ bool RbSwapResources::create(ID3D12Device* device,
         return false;
     }
 
-    DXGI_FORMAT srvFmt  = srcFmt;
-    DXGI_FORMAT swapFmt = dstFmt;
-    if (srvFmt == DXGI_FORMAT_UNKNOWN || swapFmt == DXGI_FORMAT_UNKNOWN) {
-        const DXGI_FORMAT outTexFmt = srcOutput->GetDesc().Format;
-        if (srvFmt == DXGI_FORMAT_UNKNOWN) {
-            srvFmt = resolveSrvFormat(outTexFmt);
-        }
-        if (swapFmt == DXGI_FORMAT_UNKNOWN) {
-            swapFmt = resolveUavFormat(outTexFmt);
-        }
-    }
+    const DXGI_FORMAT fallbackFmt =
+        (srcFmt == DXGI_FORMAT_UNKNOWN || dstFmt == DXGI_FORMAT_UNKNOWN)
+            ? srcOutput->GetDesc().Format
+            : DXGI_FORMAT_UNKNOWN;
+    const DXGI_FORMAT srvFmt  = resolveSrvFormat(srcFmt != DXGI_FORMAT_UNKNOWN ? srcFmt : fallbackFmt);
+    const DXGI_FORMAT swapFmt = resolveUavFormat(dstFmt != DXGI_FORMAT_UNKNOWN ? dstFmt : fallbackFmt);
 
     D3D12_RESOURCE_DESC desc = {};
     desc.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
