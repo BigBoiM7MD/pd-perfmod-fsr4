@@ -3,6 +3,7 @@
 #endif
 
 #include "../include/Logging.h"
+#include <cstring>
 #include <cwchar>
 #include <utility>
 #include <Windows.h>
@@ -11,16 +12,15 @@ FILE* Logging::s_file         = nullptr;
 SRWLOCK Logging::s_lock       = SRWLOCK_INIT;
 bool Logging::s_verbose       = false;   // default: NON-VERBOSE (set by INI)
 INIT_ONCE Logging::s_initOnce = INIT_ONCE_STATIC_INIT;
+std::atomic<Logging::LogDelegateFn> Logging::s_delegate{nullptr};
 
 // ---------------------------------------------------------------------------
-// stderr helpers -- SEPARATE FILE-SCOPE FUNCTIONS.
-// MSVC forbids mixing __try/__except (SEH) with C++ try/catch in one function,
-// and __try cannot appear in functions with C++ objects needing unwinding. So
-// every stderr write is routed here, where we use SEH to swallow a bad/invalid
-// stderr handle. Under a headless Proton launch stderr is often invalid and
-// fprintf() to it raises an access violation; with /EHa that SEH would be
-// caught by an export's C++ try/catch and silently disable FSR4. Guarding it
-// here ensures a dead stderr can NEVER disable the backend.
+// stderr / file / delegate helpers -- SEPARATE FILE-SCOPE FUNCTIONS.
+// MSVC/clang-cl forbids mixing __try/__except (SEH) with C++ try/catch in one
+// function, and __try cannot appear in functions with C++ objects needing
+// unwinding. So stderr/file writes use dedicated SEH helpers, while external
+// host delegate invocation uses a dedicated /EHa C++ try/catch helper invoked
+// AFTER s_lock is released.
 // ---------------------------------------------------------------------------
 static void safeStderr(const char* level, const char* fmt, va_list args) {
     __try {
@@ -29,6 +29,26 @@ static void safeStderr(const char* level, const char* fmt, va_list args) {
         fprintf(stderr, "\n");
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         // stderr unusable (headless launch) -- file log (if any) still runs.
+    }
+}
+
+static void safeFileLog(FILE* file, const char* level, const char* fmt, va_list args) {
+    __try {
+        fprintf(file, "[%s] ", level);
+        vfprintf(file, fmt, args);
+        fprintf(file, "\n");
+        fflush(file);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // defend the caller; keep going
+    }
+}
+
+static void safeInvokeDelegate(Logging::LogDelegateFn fn, char* msg, int len) {
+    try {
+        fn(msg, len);
+    } catch (...) {
+        // Never allow an external host log delegate (C++ or SEH under /EHa)
+        // to crash or unwind through PDPerfPlugin.
     }
 }
 
@@ -404,11 +424,15 @@ void Logging::init() {
     InitOnceExecuteOnce(&s_initOnce, loggingInitOnce, nullptr, nullptr);
 }
 
+void Logging::setDelegate(LogDelegateFn fn) {
+    s_delegate.store(fn, std::memory_order_release);
+}
+
 void Logging::info(const char* fmt, ...) {
     if (!s_verbose) return;
     va_list args;
     va_start(args, fmt);
-    vlog("INFO", fmt, args);
+    vlog("INFO", fmt, args, false);
     va_end(args);
 }
 
@@ -416,7 +440,7 @@ void Logging::warn(const char* fmt, ...) {
     if (!s_verbose) return;
     va_list args;
     va_start(args, fmt);
-    vlog("WARN", fmt, args);
+    vlog("WARN", fmt, args, false);
     va_end(args);
 }
 
@@ -425,7 +449,7 @@ void Logging::warn(const char* fmt, ...) {
 void Logging::error(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    vlog("ERROR", fmt, args);
+    vlog("ERROR", fmt, args, true);
     va_end(args);
 }
 
@@ -433,11 +457,44 @@ void Logging::error(const char* fmt, ...) {
 void Logging::always(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    vlog("INFO", fmt, args);
+    vlog("INFO", fmt, args, true);
     va_end(args);
 }
 
-void Logging::vlog(const char* level, const char* fmt, va_list args) {
+void Logging::vlog(const char* level, const char* fmt, va_list args, bool forwardToDelegate) {
+    char delegateBuf[1024] = {};
+    int delegateLen = 0;
+
+    if (forwardToDelegate) {
+        size_t prefixLen = 0;
+        if (level && strcmp(level, "ERROR") == 0) {
+            static constexpr char kErrPrefix[] = "[ERROR] ";
+            prefixLen = sizeof(kErrPrefix) - 1;
+            memcpy(delegateBuf, kErrPrefix, prefixLen);
+        }
+
+        va_list aDelegate;
+        va_copy(aDelegate, args);
+        const size_t avail = sizeof(delegateBuf) - prefixLen;
+        const int n = vsnprintf(delegateBuf + prefixLen, avail, fmt, aDelegate);
+        va_end(aDelegate);
+
+        if (n < 0) {
+            delegateLen = 0;
+            delegateBuf[0] = '\0';
+        } else {
+            size_t total = prefixLen + static_cast<size_t>(n);
+            if (total >= sizeof(delegateBuf)) {
+                total = sizeof(delegateBuf) - 1;
+            }
+            delegateBuf[total] = '\0';
+            while (total > 0 && (delegateBuf[total - 1] == '\n' || delegateBuf[total - 1] == '\r')) {
+                delegateBuf[--total] = '\0';
+            }
+            delegateLen = static_cast<int>(total);
+        }
+    }
+
     // SRWLOCK (not std::mutex): zero-init via SRWLOCK_INIT, usable before any
     // C++ dynamic init has run. Critical under Wine/Proton where this DLL is
     // loaded late and can first log during its own init().
@@ -456,18 +513,21 @@ void Logging::vlog(const char* level, const char* fmt, va_list args) {
         va_end(a2);
     }
 
-    // File write is SEH-guarded: a stale/invalid FILE* under emulation must
-    // never AV back into the caller (that used to disable FSR4 during init).
+    // File write is SEH-guarded in a separate helper: a stale/invalid FILE*
+    // under emulation must never AV back into the caller.
     if (s_file) {
-        __try {
-            fprintf(s_file, "[%s] ", level);
-            vfprintf(s_file, fmt, args);
-            fprintf(s_file, "\n");
-            fflush(s_file);
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            // defend the caller; keep going
-        }
+        safeFileLog(s_file, level, fmt, args);
     }
 
     ReleaseSRWLockExclusive(&s_lock);
+
+    // Invoke external host log delegate strictly AFTER releasing s_lock so
+    // re-entrancy or a throwing/crashing callback can never deadlock or leak
+    // the lock.
+    if (forwardToDelegate) {
+        const LogDelegateFn fn = s_delegate.load(std::memory_order_acquire);
+        if (fn) {
+            safeInvokeDelegate(fn, delegateBuf, delegateLen);
+        }
+    }
 }

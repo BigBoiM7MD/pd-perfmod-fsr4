@@ -9,22 +9,16 @@
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <unordered_map>
-#include <map>
 
 // Defined in Logging.cpp (SEH-guarded). extern so it links across TUs.
 extern void safeStderrWarn(const char* fmt, ...);
 
 static FSR4Backend* g_fsr4 = nullptr;
 static INIT_ONCE g_initOnce = INIT_ONCE_STATIC_INIT;
-static void (*g_logDelegate)(char*, int) = nullptr;
 
 static SRWLOCK g_fallbackLock = SRWLOCK_INIT;
 static ID3D12Device* g_d3d12Device = nullptr;
 static std::unordered_map<int, ID3D12Resource*> g_fallbackTextures;
-
-static void logCallback(char* message, int iSize) {
-    if (g_logDelegate) g_logDelegate(message, iSize);
-}
 
 static BOOL CALLBACK initializeOnce(PINIT_ONCE, PVOID, PVOID*) {
     // EXPORT-GUARDED. REFramework calls IsUpscaleMethodAvailable /
@@ -394,8 +388,12 @@ int __stdcall GetJitterOffset(float* outX, float* outY, int index, int phaseCoun
 }
 
 void __stdcall InitLogDelegate(void (*Log)(char* message, int iSize)) {
-    initialize();
-    g_logDelegate = Log;
+    try {
+        Logging::setDelegate(Log);
+        initialize();
+    } catch (...) {
+        safeStderrWarn("[PDPerfPlugin] InitLogDelegate threw exception\n");
+    }
 }
 
 bool __stdcall IsUpscaleMethodAvailable(int upscaleMethod) {

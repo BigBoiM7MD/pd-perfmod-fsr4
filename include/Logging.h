@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdio>
 #include <cstdarg>
 #include <string>
@@ -20,7 +21,10 @@
 // usable immediately with no dynamic-init dependency -- the Wine-safe choice.
 class Logging {
 public:
+    using LogDelegateFn = void (*)(char* message, int iSize);
+
     static void init();
+    static void setDelegate(LogDelegateFn fn);
     static void info(const char* fmt, ...);
     static void warn(const char* fmt, ...);
     static void error(const char* fmt, ...);
@@ -43,9 +47,10 @@ public:
 
 private:
     static BOOL CALLBACK loggingInitOnce(PINIT_ONCE initOnce, PVOID param, PVOID* context);
-    static void vlog(const char* level, const char* fmt, va_list args);
+    static void vlog(const char* level, const char* fmt, va_list args, bool forwardToDelegate = false);
     static FILE* s_file;
     static SRWLOCK s_lock;
     static bool s_verbose;
     static INIT_ONCE s_initOnce;
+    static std::atomic<LogDelegateFn> s_delegate;
 };
