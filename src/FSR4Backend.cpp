@@ -775,6 +775,7 @@ static float computeFrameTimeDeltaMs(LARGE_INTEGER& lastEvalQpc, const LARGE_INT
 
 FSR4Backend::FSR4Backend() {
     m_impl = new Impl();
+    // QPC frequency is fixed at boot; Impl::cleanupSetupState() preserves qpcFreq.
     QueryPerformanceFrequency(&m_impl->qpcFreq);
 }
 
@@ -822,7 +823,6 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
         }
 
         m_impl->graphicsAPI = graphicsAPI;
-        QueryPerformanceFrequency(&m_impl->qpcFreq);
         readBackendIni();
 
         ID3D12CommandQueue* queue = (ID3D12CommandQueue*)deviceOrQueue;
