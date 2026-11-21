@@ -43,6 +43,43 @@ static void safeFileLog(FILE* file, const char* level, const char* fmt, va_list 
     }
 }
 
+static int safeFormatDelegate(char* buf, size_t bufSize, const char* level,
+                              const char* fmt, va_list args) {
+    if (!buf || bufSize == 0) return 0;
+    buf[0] = '\0';
+    if (!fmt) return 0;
+    __try {
+        size_t prefixLen = 0;
+        if (level && strcmp(level, "ERROR") == 0) {
+            static constexpr char kErrPrefix[] = "[ERROR] ";
+            prefixLen = sizeof(kErrPrefix) - 1;
+            if (prefixLen >= bufSize) {
+                return 0;
+            }
+            memcpy(buf, kErrPrefix, prefixLen);
+        }
+
+        const int n = vsnprintf(buf + prefixLen, bufSize - prefixLen, fmt, args);
+        if (n < 0) {
+            buf[0] = '\0';
+            return 0;
+        }
+
+        size_t total = prefixLen + static_cast<size_t>(n);
+        if (total >= bufSize) {
+            total = bufSize - 1;
+        }
+        buf[total] = '\0';
+        while (total > 0 && (buf[total - 1] == '\n' || buf[total - 1] == '\r')) {
+            buf[--total] = '\0';
+        }
+        return static_cast<int>(total);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        buf[0] = '\0';
+        return 0;
+    }
+}
+
 static void safeInvokeDelegate(Logging::LogDelegateFn fn, char* msg, int len) {
     try {
         fn(msg, len);
@@ -471,33 +508,10 @@ void Logging::vlog(const char* level, const char* fmt, va_list args, bool forwar
     int delegateLen = 0;
 
     if (forwardToDelegate) {
-        size_t prefixLen = 0;
-        if (level && strcmp(level, "ERROR") == 0) {
-            static constexpr char kErrPrefix[] = "[ERROR] ";
-            prefixLen = sizeof(kErrPrefix) - 1;
-            memcpy(delegateBuf, kErrPrefix, prefixLen);
-        }
-
         va_list aDelegate;
         va_copy(aDelegate, args);
-        const size_t avail = sizeof(delegateBuf) - prefixLen;
-        const int n = vsnprintf(delegateBuf + prefixLen, avail, fmt, aDelegate);
+        delegateLen = safeFormatDelegate(delegateBuf, sizeof(delegateBuf), level, fmt, aDelegate);
         va_end(aDelegate);
-
-        if (n < 0) {
-            delegateLen = 0;
-            delegateBuf[0] = '\0';
-        } else {
-            size_t total = prefixLen + static_cast<size_t>(n);
-            if (total >= sizeof(delegateBuf)) {
-                total = sizeof(delegateBuf) - 1;
-            }
-            delegateBuf[total] = '\0';
-            while (total > 0 && (delegateBuf[total - 1] == '\n' || delegateBuf[total - 1] == '\r')) {
-                delegateBuf[--total] = '\0';
-            }
-            delegateLen = static_cast<int>(total);
-        }
     }
 
     // SRWLOCK (not std::mutex): zero-init via SRWLOCK_INIT, usable before any
@@ -528,8 +542,8 @@ void Logging::vlog(const char* level, const char* fmt, va_list args, bool forwar
 
     // Invoke external host log delegate strictly AFTER releasing s_lock so
     // re-entrancy or a throwing/crashing callback can never deadlock or leak
-    // the lock.
-    if (forwardToDelegate) {
+    // the lock. Only invoke when formatting succeeded with non-empty output.
+    if (forwardToDelegate && delegateLen > 0) {
         const LogDelegateFn fn = s_delegate.load(std::memory_order_acquire);
         if (fn) {
             safeInvokeDelegate(fn, delegateBuf, delegateLen);
