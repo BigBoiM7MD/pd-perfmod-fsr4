@@ -7,9 +7,9 @@
 ## TL;DR
 
 - Picks the **best FSR version your GPU supports** (FSR 4 on RDNA4 / RX 9000 series, FSR 3.1 on older FSR-capable cards).
-- **Correct colors on Linux/Proton** — we fix the red/blue swap automatically.
+- Uses the **dedicated FSR 4 model** for each REFramework preset (Quality, Balanced, Performance, Ultra Performance, Native Res / DLAA), with optional DRS via INI.
 - **HDR is preserved** when the game runs in HDR.
-- Open source, drop-in `PDPerfPlugin.dll`. No closed Nexus-only binaries.
+- Open source, drop-in `PDPerfPlugin.dll` (sole static import: `KERNEL32.dll`). No closed Nexus-only binaries.
 
 ## What it is / What it does
 
@@ -18,13 +18,14 @@ game's existing upscaler interface and dispatches through the real AMD
 FidelityFX (FFX) runtime. At load it:
 
 - **Auto-selects the newest FSR version your GPU actually supports** — FSR 4
-  (ML upscaler) on RDNA4, or FSR 3.1 automatically on older FSR-capable GPUs.
+  (ML upscaler) on RDNA4, or FSR 3.1 automatically on older FSR-capable GPUs,
+  falling back through enumerated versions if needed.
 - **Logs the truthful running version + your GPU** — no hardcoded constants.
   Logs `[INFO] pd-perfmod-fsr4 loaded (mode: NON-VERBOSE)` on load, followed by
   e.g. `[INFO] FSR version: 4.1.1  |  GPU: AMD Radeon RX 9070 XT` once D3D12
-  initializes.
-- **Handles Linux/Proton color and HDR quirks** so the image looks right
-  (see [Linux / Proton](#linux--proton-colors--hdr)).
+  initializes, and forwards key status/error lines to REFramework's log.
+- **Works on Windows and Linux / Proton** (including Steam Deck) with HDR
+  passthrough (see [Linux / Proton](#linux--proton)).
 - Writes a **live, tail-able log** you can watch while the game runs.
 
 ## Install
@@ -89,15 +90,6 @@ Verbose=0      ; 0 = NON-VERBOSE default (version + GPU + errors only)
                ; 1 = VERBOSE (also lists every supported FSR version + internal steps)
 
 [Backend]
-; OutputFormat: override the output texture format. ADVANCED — leave at 0.
-; 0  = auto (recommended): Linux SDR defaults to R8G8B8A8_UNORM (28);
-;      HDR preserves 24/10; Windows uses the native backbuffer format.
-; 28 = R8G8B8A8 (RGBA)     — SDR. Default on Linux/Proton (native color order).
-; 87 = B8G8R8A8 (BGRA)     — SDR. Explicit BGRA output format override.
-; 24 = R10G10B10A2         — HDR (10-bit). Preserved automatically in HDR.
-; 10 = R16G16B16A16_FLOAT  — HDR (float16). Preserved automatically in HDR.
-OutputFormat=0
-
 ; DynamicResolution: controls FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION.
 ; 0 = off (default): FSR 4 selects the dedicated preset model matching your
 ;     REFramework preset (Model 0 Native AA / 1 Quality / 2 Balanced /
@@ -118,17 +110,13 @@ DynamicResolution=0
 
 Change any setting and restart the game to apply.
 
-## Linux / Proton (colors + HDR)
+## Linux / Proton
 
 FSR4 (via the AMD loader) **runs on newer Proton / Proton-GE with vkd3d-proton** — it is
 not Windows-only.
 
-- **Colors are correct out of the box.** For SDR under Proton the plugin outputs
-  `R8G8B8A8_UNORM` (`28`) directly from FSR with proper FidelityFX surface
-  format mapping — no extra red↔blue swap shader pass needed.
-- **HDR is preserved.** When the game runs in HDR, the plugin keeps the HDR
-  pixel format (10-bit `24` or float16 `10`) end-to-end, so HDR colors pass
-  through untouched.
+- **HDR is preserved.** When the game runs in HDR, the plugin preserves the HDR
+  surface end-to-end so HDR colors pass through untouched.
   - *Caveat:* REFramework currently reports the game as SDR to the upscaler
     (`isContentHDR = false`), so FSR does **not** apply HDR-specific tone mapping
     — you get HDR **passthrough**, not FSR HDR tone mapping. Fixing that needs a
@@ -176,9 +164,9 @@ Get-Content "path\to\pd-perfmod-fsr4.log" -Wait -Tail 20
   runtime (sole static import: `KERNEL32.dll`), enables `/EHa` so both C++ and
   SEH exceptions are caught, and forwards key status/error log lines to
   REFramework via `InitLogDelegate`.
-- **Windows:** uses the native backbuffer format, untouched.
-- **Linux/Proton:** uses `R8G8B8A8_UNORM` (`28`) directly for SDR, or keeps the
-  HDR container (`24`/`10`) for HDR; both paths are fail-safe.
+- Uses a 3-slot D3D12 command allocator + fence ring with `SRWLOCK`
+  synchronization, real per-context `QueryPerformanceCounter` frame deltas, and
+  VR dual-eye multipass support (`execute = false` recording).
 
 ## Building from source
 

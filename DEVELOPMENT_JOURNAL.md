@@ -103,6 +103,45 @@ verify the *deployed* binary's timestamp, not just the source.
 
 ---
 
+## 7. The real root cause behind the Linux color bug (`v0.2.0`)
+
+During the `v0.2.0` audit we discovered *why* format `28` (`DXGI_FORMAT_R8G8B8A8_UNORM`)
+had scrambled every channel back in section 3:
+
+`makeResource()` was passing raw `DXGI_FORMAT` values directly into
+`FfxApiResourceDescription.format` instead of mapping them to the FidelityFX
+`FfxApiSurfaceFormat` enum (`0..39`). In `FfxApiSurfaceFormat`, `28` is
+`FFX_API_SURFACE_FORMAT_R32_FLOAT` — not RGBA8 (`10`)! Format `87` (`BGRA8`)
+was out of bounds (`> 39`), so the runtime ignored it and fell back to the
+D3D12 resource desc, leaving only a clean R↔B swap that the compute shader had
+to undo.
+
+**Fix:** once `makeResource()` mapped `D3D12_RESOURCE_DIMENSION`, `DXGI_FORMAT`,
+and resource usage flags to the real FidelityFX SDK enums, `R8G8B8A8_UNORM`
+rendered with proper colors natively under Proton — letting us delete the entire
+R/B swap compute shader pass, staging texture, descriptor heap, and HLSL
+bytecode.
+
+---
+
+## 8. Preset FSR 4 models vs. Model 4 (DRS) (`v0.2.0`)
+
+Setting `FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION` unconditionally with
+`maxRenderSize = displaySize` caused AMD's FSR 4 runtime to pick **Model 4
+(DRS)** for every preset instead of the dedicated per-preset ML models
+(Model 0 Native AA / 1 Quality / 2 Balanced / 3 Performance / 5 Ultra
+Performance).
+
+**Fix:** defaulted `[Backend] DynamicResolution=0` (omitting the DRS flag and
+sizing `maxRenderSize` to the active REFramework preset), restored
+`qualityLevel == 3` to Ultra Performance (`3.0x`), and added one-shot FFX
+context recreation in `evaluate()` when REFramework's `"Use Native Res (DLAA)"`
+toggle changes `renderSize` to `displaySize - 1` (snapping `maxRenderSize` to
+`displaySize` for Model 0 Native AA). Users who want DRS Model 4 can opt in via
+`DynamicResolution=1`.
+
+---
+
 ## Open items (REFramework-side, not our bugs)
 
 These are upstream REFramework behaviors we documented so users don't blame this
