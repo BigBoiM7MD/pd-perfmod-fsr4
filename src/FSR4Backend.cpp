@@ -1,6 +1,7 @@
 #include "../include/FSR4Backend.h"
 #include "../include/Logging.h"
 #include "../include/PDPerfPlugin.h"
+#include "../include/RbSwapPass.h"
 #include "../include/SrwLockGuard.h"
 
 #include <d3d12.h>
@@ -17,10 +18,6 @@
 #include <utility>
 #include <vector>
 
-// Precompiled DXBC for the red<->blue swap compute shader (src/shaders/rb_swap.hlsl).
-// Embedded so we never rely on d3dcompiler at runtime (unreliable under Proton).
-// Regenerate: fxc /nologo /T cs_5_0 /E CSMain /O3 /Fh src/shaders/rb_swap_cs.h /Vn g_rb_swap_cs src/shaders/rb_swap.hlsl
-#include "shaders/rb_swap_cs.h"
 // -----------------------------------------------------------------------
 // FFX API type aliases matching the SDK headers exactly
 // -----------------------------------------------------------------------
@@ -411,13 +408,11 @@ struct UpscaleContext {
     ID3D12Resource*   outputTexture  = nullptr;
     ID3D12Device*     device         = nullptr;
 
-    // R/B-swap staging texture (Linux/Proton only). FSR4 writes RGBA into
-    // outputTexture; a compute pass writes the R<->B-swapped (BGRA-ordered)
-    // result here, which we hand back to REFramework so its raw copy presents
-    // correct colors on the (BGRA-presenting) Proton backbuffer. Null on native
-    // Windows or when the swap is disabled.
-    ID3D12Resource*   swapTexture    = nullptr;
-    ID3D12DescriptorHeap* swapHeap   = nullptr;
+    // R/B-swap staging resources (Linux/Proton only). FSR4 writes RGBA into
+    // outputTexture; RbSwapPass writes the R<->B-swapped (BGRA-ordered) result
+    // into rbSwap.swapTexture, which we hand back to REFramework so its raw
+    // copy presents correct colors on the (BGRA-presenting) Proton backbuffer.
+    RbSwapResources   rbSwap;
     bool              rbSwapEnabled  = false;
 
     int   renderWidth  = 0;
@@ -466,8 +461,7 @@ struct FSR4Backend::Impl {
 
     // Red<->blue swap compute pipeline (Linux/Proton only), shared across
     // contexts; per-context activation lives on UpscaleContext.
-    ID3D12RootSignature* rbSwapRootSig = nullptr;
-    ID3D12PipelineState* rbSwapPso     = nullptr;
+    RbSwapPipeline rbSwapPipeline;
 
     // Per-instance one-time diagnostic log flags (reset in cleanupSetupState).
     bool inputSizesLogged    = false;
@@ -532,22 +526,8 @@ struct FSR4Backend::Impl {
             }
             ctx.outputTexture = nullptr;
         }
-        if (ctx.swapTexture) {
-            try {
-                ctx.swapTexture->Release();
-            } catch (...) {
-                Logging::warn("FSR4Backend: swapTexture->Release threw during cleanup (id=%d)", ctx.id);
-            }
-            ctx.swapTexture = nullptr;
-        }
-        if (ctx.swapHeap) {
-            try {
-                ctx.swapHeap->Release();
-            } catch (...) {
-                Logging::warn("FSR4Backend: swapHeap->Release threw during cleanup (id=%d)", ctx.id);
-            }
-            ctx.swapHeap = nullptr;
-        }
+        ctx.rbSwap.release();
+        ctx.rbSwapEnabled = false;
     }
 
     static void cleanupSetupState(Impl* impl) {
@@ -569,8 +549,7 @@ struct FSR4Backend::Impl {
             }
         };
 
-        safeRelease(impl->rbSwapPso);
-        safeRelease(impl->rbSwapRootSig);
+        impl->rbSwapPipeline.release();
 
         safeRelease(impl->cmdList);
         impl->cmdListOpen = false;
@@ -781,261 +760,6 @@ static void messageCallback(uint32_t type, const wchar_t* message) {
         Logging::error("FSR4: %ls", message);
     else
         Logging::warn("FSR4: %ls", message);
-}
-
-// ---------------------------------------------------------------------------
-// Red<->blue swap compute pipeline (Linux/Proton only)
-// ---------------------------------------------------------------------------
-// The Proton swapchain backbuffer PRESENTS as B8G8R8A8 (BGRA) even though
-// REFramework's backbuffer GetDesc() reports R8G8B8A8 (28). REFramework copies
-// our output with a raw CopyResource that vkd3d implements as vkCmdCopyImage2
-// (no channel reorder). FSR4 always writes RGBA byte order, so a straight copy
-// into the BGRA-presenting backbuffer swaps red/blue. This pass reads the RGBA
-// FSR output via SRV and stores (b,g,r,a) into an RGBA-typed texture, i.e. the
-// stored bytes are BGRA-ordered -> the raw copy then presents correct colors.
-// SRV read + RGBA UAV store are baseline D3D12 (no Typed UAV Load cap needed).
-
-static bool ensureRbSwapPipeline(ID3D12Device* device,
-                                 ID3D12RootSignature** outRootSig,
-                                 ID3D12PipelineState** outPso) {
-    if (!outRootSig || !outPso) return false;
-    if (*outPso && *outRootSig) return true;
-    if (!device) return false;
-
-    if (*outPso) {
-        try { (*outPso)->Release(); } catch (...) {}
-        *outPso = nullptr;
-    }
-    if (*outRootSig) {
-        try { (*outRootSig)->Release(); } catch (...) {}
-        *outRootSig = nullptr;
-    }
-
-    D3D12_DESCRIPTOR_RANGE ranges[2] = {};
-    ranges[0].RangeType          = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    ranges[0].NumDescriptors     = 1;
-    ranges[0].BaseShaderRegister = 0; // t0
-    ranges[0].OffsetInDescriptorsFromTableStart = 0;
-    ranges[1].RangeType          = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[1].NumDescriptors     = 1;
-    ranges[1].BaseShaderRegister = 0; // u0
-    ranges[1].OffsetInDescriptorsFromTableStart = 1;
-
-    D3D12_ROOT_PARAMETER param = {};
-    param.ParameterType    = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    param.DescriptorTable.NumDescriptorRanges = 2;
-    param.DescriptorTable.pDescriptorRanges   = ranges;
-
-    D3D12_ROOT_SIGNATURE_DESC rsDesc = {};
-    rsDesc.NumParameters = 1;
-    rsDesc.pParameters   = &param;
-    rsDesc.Flags         = D3D12_ROOT_SIGNATURE_FLAG_NONE;
-
-    struct RbSwapInitGuard {
-        bool loadedD3d12 = false;
-        HMODULE d3d12Mod = nullptr;
-        ID3DBlob* sigBlob = nullptr;
-        ID3DBlob* errBlob = nullptr;
-        ID3D12RootSignature** rootSig = nullptr;
-        bool committed = false;
-        void releaseTemp() noexcept {
-            if (errBlob) {
-                try { errBlob->Release(); } catch (...) {}
-                errBlob = nullptr;
-            }
-            if (sigBlob) {
-                try { sigBlob->Release(); } catch (...) {}
-                sigBlob = nullptr;
-            }
-            if (loadedD3d12 && d3d12Mod) {
-                try { FreeLibrary(d3d12Mod); } catch (...) {}
-                d3d12Mod = nullptr;
-                loadedD3d12 = false;
-            }
-        }
-        ~RbSwapInitGuard() {
-            if (!committed && rootSig && *rootSig) {
-                try { (*rootSig)->Release(); } catch (...) {}
-                *rootSig = nullptr;
-            }
-            releaseTemp();
-        }
-    } guard;
-    guard.rootSig = outRootSig;
-
-    guard.d3d12Mod = GetModuleHandleW(L"d3d12.dll");
-    if (!guard.d3d12Mod) {
-        guard.d3d12Mod = LoadLibraryW(L"d3d12.dll");
-        guard.loadedD3d12 = (guard.d3d12Mod != nullptr);
-    }
-    using PFN_D3D12SerializeRootSignature = HRESULT (WINAPI*)(
-        const D3D12_ROOT_SIGNATURE_DESC*, D3D_ROOT_SIGNATURE_VERSION,
-        ID3DBlob**, ID3DBlob**);
-    auto serializeRootSig = guard.d3d12Mod
-        ? (PFN_D3D12SerializeRootSignature)GetProcAddress(guard.d3d12Mod, "D3D12SerializeRootSignature")
-        : nullptr;
-    if (!serializeRootSig) {
-        Logging::error("FSR4Backend: rb-swap failed to resolve d3d12.dll!D3D12SerializeRootSignature (err=%lu)",
-                       GetLastError());
-        return false;
-    }
-
-    HRESULT hr = serializeRootSig(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-                                  &guard.sigBlob, &guard.errBlob);
-    if (FAILED(hr) || !guard.sigBlob) {
-        Logging::error("FSR4Backend: rb-swap SerializeRootSignature hr=%08x", hr);
-        return false;
-    }
-    hr = device->CreateRootSignature(0, guard.sigBlob->GetBufferPointer(),
-             guard.sigBlob->GetBufferSize(), IID_PPV_ARGS(outRootSig));
-    guard.releaseTemp();
-    if (FAILED(hr) || !*outRootSig) {
-        Logging::error("FSR4Backend: rb-swap CreateRootSignature hr=%08x ptr=%p",
-                       hr, (void*)*outRootSig);
-        return false;
-    }
-
-    D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
-    psoDesc.pRootSignature   = *outRootSig;
-    psoDesc.CS.pShaderBytecode = g_rb_swap_cs;
-    psoDesc.CS.BytecodeLength  = sizeof(g_rb_swap_cs);
-    hr = device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(outPso));
-    if (FAILED(hr) || !*outPso) {
-        Logging::error("FSR4Backend: rb-swap CreateComputePipelineState hr=%08x ptr=%p",
-                       hr, (void*)*outPso);
-        if (*outPso) {
-            try { (*outPso)->Release(); } catch (...) {}
-            *outPso = nullptr;
-        }
-        return false;
-    }
-    guard.committed = true;
-    Logging::info("FSR4Backend: rb-swap compute pipeline created");
-    return true;
-}
-
-static DXGI_FORMAT resolveRbSwapSrvFormat(DXGI_FORMAT fmt) {
-    switch (fmt) {
-        case DXGI_FORMAT_R8G8B8A8_TYPELESS:     return DXGI_FORMAT_R8G8B8A8_UNORM;
-        case DXGI_FORMAT_B8G8R8A8_TYPELESS:     return DXGI_FORMAT_B8G8R8A8_UNORM;
-        case DXGI_FORMAT_R10G10B10A2_TYPELESS:  return DXGI_FORMAT_R10G10B10A2_UNORM;
-        case DXGI_FORMAT_R16G16B16A16_TYPELESS: return DXGI_FORMAT_R16G16B16A16_FLOAT;
-        default:                                return fmt;
-    }
-}
-
-static DXGI_FORMAT resolveRbSwapUavFormat(DXGI_FORMAT outFmt) {
-    switch (outFmt) {
-        case DXGI_FORMAT_R16G16B16A16_FLOAT:
-        case DXGI_FORMAT_R16G16B16A16_TYPELESS:
-            return DXGI_FORMAT_R16G16B16A16_FLOAT;
-        case DXGI_FORMAT_R10G10B10A2_UNORM:
-        case DXGI_FORMAT_R10G10B10A2_TYPELESS:
-            return DXGI_FORMAT_R10G10B10A2_UNORM;
-        default:
-            return DXGI_FORMAT_R8G8B8A8_UNORM;
-    }
-}
-
-static bool createRbSwapResources(ID3D12Device* device, UpscaleContext& ctx,
-                                  UINT width, UINT height) {
-    if (!device || !ctx.outputTexture || width == 0 || height == 0) {
-        return false;
-    }
-
-    const DXGI_FORMAT outTexFmt = ctx.outputTexture->GetDesc().Format;
-    const DXGI_FORMAT srvFmt    = resolveRbSwapSrvFormat(outTexFmt);
-    const DXGI_FORMAT swapFmt   = resolveRbSwapUavFormat(outTexFmt);
-
-    D3D12_RESOURCE_DESC desc = {};
-    desc.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    desc.Width            = width;
-    desc.Height           = height;
-    desc.DepthOrArraySize = 1;
-    desc.MipLevels        = 1;
-    desc.Format           = swapFmt;
-    desc.SampleDesc.Count = 1;
-    desc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    desc.Flags            = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-
-    D3D12_HEAP_PROPERTIES heapProps = {};
-    heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    HRESULT hr = device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
-        &desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
-        IID_PPV_ARGS(&ctx.swapTexture));
-    if (FAILED(hr) || !ctx.swapTexture) {
-        Logging::error("FSR4Backend: rb-swap texture create hr=%08x (fmt=%d)", hr, (int)swapFmt);
-        ctx.swapTexture = nullptr;
-        return false;
-    }
-
-    D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
-    heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heapDesc.NumDescriptors = 2;
-    heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    hr = device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&ctx.swapHeap));
-    if (FAILED(hr) || !ctx.swapHeap) {
-        Logging::error("FSR4Backend: rb-swap heap create hr=%08x", hr);
-        ctx.swapHeap = nullptr;
-        ctx.swapTexture->Release();
-        ctx.swapTexture = nullptr;
-        return false;
-    }
-
-    UINT inc = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu = ctx.swapHeap->GetCPUDescriptorHandleForHeapStart();
-
-    D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv.Format                  = srvFmt;
-    srv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srv.Texture2D.MipLevels     = 1;
-    device->CreateShaderResourceView(ctx.outputTexture, &srv, cpu);
-
-    cpu.ptr += inc;
-    D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-    uav.Format        = swapFmt;
-    uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-    device->CreateUnorderedAccessView(ctx.swapTexture, nullptr, &uav, cpu);
-
-    return true;
-}
-
-static void recordRbSwap(ID3D12RootSignature* rootSig, ID3D12PipelineState* pso,
-                         UpscaleContext& ctx,
-                         ID3D12GraphicsCommandList* cmdList) {
-    D3D12_RESOURCE_BARRIER toSrv = {};
-    toSrv.Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    toSrv.Transition.pResource   = ctx.outputTexture;
-    toSrv.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    toSrv.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    toSrv.Transition.StateAfter  = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-    cmdList->ResourceBarrier(1, &toSrv);
-
-    ID3D12DescriptorHeap* heaps[] = { ctx.swapHeap };
-    cmdList->SetDescriptorHeaps(1, heaps);
-    cmdList->SetComputeRootSignature(rootSig);
-    cmdList->SetPipelineState(pso);
-    cmdList->SetComputeRootDescriptorTable(0,
-        ctx.swapHeap->GetGPUDescriptorHandleForHeapStart());
-
-    UINT gx = (UINT)((ctx.displaySizeX + 7) / 8);
-    UINT gy = (UINT)((ctx.displaySizeY + 7) / 8);
-    cmdList->Dispatch(gx, gy, 1);
-
-    D3D12_RESOURCE_BARRIER postBarriers[2] = {};
-    postBarriers[0].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    postBarriers[0].Transition.pResource   = ctx.outputTexture;
-    postBarriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    postBarriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-    postBarriers[0].Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-
-    postBarriers[1].Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    postBarriers[1].UAV.pResource = ctx.swapTexture;
-
-    cmdList->ResourceBarrier(2, postBarriers);
 }
 
 bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
@@ -1666,14 +1390,17 @@ void* FSR4Backend::createContext(int id, int upscaleMethod, int qualityLevel,
 
         void* returnTexture = outputTexture;
         if (wantRbSwap) {
-            if (ensureRbSwapPipeline(m_impl->device, &m_impl->rbSwapRootSig, &m_impl->rbSwapPso) &&
-                createRbSwapResources(m_impl->device, ctx,
-                                      static_cast<UINT>(displaySizeX),
-                                      static_cast<UINT>(displaySizeY))) {
+            const DXGI_FORMAT srvFmt = RbSwapResources::resolveSrvFormat(texDesc.Format);
+            const DXGI_FORMAT uavFmt = RbSwapResources::resolveUavFormat(texDesc.Format);
+            if (m_impl->rbSwapPipeline.ensure(m_impl->device) &&
+                ctx.rbSwap.create(m_impl->device, ctx.outputTexture,
+                                  static_cast<uint32_t>(displaySizeX),
+                                  static_cast<uint32_t>(displaySizeY),
+                                  srvFmt, uavFmt)) {
                 ctx.rbSwapEnabled = true;
-                returnTexture = ctx.swapTexture;
+                returnTexture = ctx.rbSwap.swapTexture;
                 Logging::info("FSR4Backend: R/B swap pass ENABLED (id=%d outFmt=%d -> swapFmt=%d mode=%d)",
-                              id, ctx.format, (int)resolveRbSwapUavFormat(texDesc.Format), s_rbSwapMode);
+                              id, ctx.format, static_cast<int>(uavFmt), s_rbSwapMode);
             } else {
                 Logging::warn("FSR4Backend: R/B swap setup FAILED (id=%d); returning raw output (colors may swap)", id);
             }
@@ -1857,16 +1584,18 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
 
         // Linux/Proton red<->blue correction. FSR4 just wrote ctx.outputTexture
         // in RGBA byte order (left in UAV state). REFramework will raw-copy the
-        // texture we returned from InitUpscaler (ctx.swapTexture) into the
+        // texture we returned from InitUpscaler (ctx.rbSwap.swapTexture) into the
         // BGRA-presenting backbuffer, and vkd3d won't reorder channels on that
         // copy. So we run our compute pass now, on the SAME command list, to
-        // write an R/B-swapped (BGRA-ordered) copy into ctx.swapTexture. Only
-        // active when the swap pass was set up in createContext.
-        if (ctx.rbSwapEnabled && ctx.swapTexture && ctx.swapHeap &&
-            m_impl->rbSwapPso && m_impl->rbSwapRootSig && effectiveCmdList &&
+        // write an R/B-swapped (BGRA-ordered) copy into ctx.rbSwap.swapTexture.
+        // Only active when the swap pass was set up in createContext.
+        if (ctx.rbSwapEnabled && ctx.rbSwap.isReady() &&
+            m_impl->rbSwapPipeline.isReady() && effectiveCmdList &&
             effectiveDst == ctx.outputTexture) {
-            recordRbSwap(m_impl->rbSwapRootSig, m_impl->rbSwapPso, ctx,
-                         (ID3D12GraphicsCommandList*)effectiveCmdList);
+            recordRbSwap(m_impl->rbSwapPipeline, ctx.rbSwap, ctx.outputTexture,
+                         static_cast<uint32_t>(ctx.displaySizeX),
+                         static_cast<uint32_t>(ctx.displaySizeY),
+                         static_cast<ID3D12GraphicsCommandList*>(effectiveCmdList));
         } else if (ctx.rbSwapEnabled && effectiveDst != ctx.outputTexture) {
             // REFramework handed us a destination texture, so FSR4 did NOT write
             // into ctx.outputTexture; the swap source would be wrong. Swap is
