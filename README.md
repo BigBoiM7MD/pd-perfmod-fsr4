@@ -68,7 +68,7 @@ depending on a closed, Nexus-only binary.
 
 ## Package contents
 
-The distributable `pd-perfmod-fsr4-v0.1.1.zip` contains:
+The distributable `pd-perfmod-fsr4-v0.2.0.zip` contains:
 
 - `PDPerfPlugin.dll` — the plugin (built from this repo)
 - `amd_fidelityfx_loader_dx12.dll` — AMD FSR loader (required; loaded at runtime)
@@ -220,8 +220,8 @@ and do not imply AMD endorsement of this mod.
 
 ## Status
 
-Current release: **v0.1.1** — see [CHANGELOG.md](CHANGELOG.md) for the full list
-of fixes in this round (Linux colors, HDR, sharpness).
+Current release: **v0.2.0** — see [CHANGELOG.md](CHANGELOG.md) for the full list
+of fixes and hardening changes in this release.
 
 Verified on RDNA4 (FSR4 4.1.1) on the author's hardware. The FSR 3.1 fallback
 path is verified at the logic/ABI level; confirm on real unsupported hardware
