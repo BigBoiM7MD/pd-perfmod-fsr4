@@ -415,10 +415,11 @@ struct UpscaleContext {
     RbSwapResources   rbSwap;
     bool              rbSwapEnabled  = false;
 
-    int   renderWidth  = 0;
-    int   renderHeight = 0;
-    float motionScaleX = 1.0f;
-    float motionScaleY = 1.0f;
+    int           renderWidth  = 0;
+    int           renderHeight = 0;
+    float         motionScaleX = 1.0f;
+    float         motionScaleY = 1.0f;
+    LARGE_INTEGER lastEvalQpc  = {};
 };
 
 static void decodeFFXVersion(uint32_t v, char* out, size_t outLen);
@@ -466,6 +467,9 @@ struct FSR4Backend::Impl {
     // Per-instance one-time diagnostic log flags (reset in cleanupSetupState).
     bool inputSizesLogged    = false;
     bool rbSwapSkippedWarned = false;
+
+    // Performance counter frequency for per-context frameTimeDelta timing.
+    LARGE_INTEGER qpcFreq = {};
 
     static bool waitForFenceValue(Impl* impl, uint64_t targetValue) {
         if (!impl || !impl->fence || !impl->fenceEvent || targetValue == 0) {
@@ -741,7 +745,38 @@ struct FSR4Backend::Impl {
 // -----------------------------------------------------------------------
 // Implementation
 // -----------------------------------------------------------------------
-FSR4Backend::FSR4Backend() { m_impl = new Impl(); }
+static float computeFrameTimeDeltaMs(LARGE_INTEGER& lastEvalQpc, const LARGE_INTEGER& qpcFreq) {
+    constexpr float kDefaultFrameTimeMs = 16.6667f;
+    constexpr float kMinFrameTimeMs     = 0.1f;
+    constexpr float kMaxFrameTimeMs     = 250.0f;
+
+    LARGE_INTEGER now = {};
+    if (!QueryPerformanceCounter(&now)) {
+        return kDefaultFrameTimeMs;
+    }
+
+    if (lastEvalQpc.QuadPart == 0 || qpcFreq.QuadPart <= 0 || now.QuadPart <= lastEvalQpc.QuadPart) {
+        lastEvalQpc = now;
+        return kDefaultFrameTimeMs;
+    }
+
+    const double elapsedMs = static_cast<double>(now.QuadPart - lastEvalQpc.QuadPart) * 1000.0 /
+                             static_cast<double>(qpcFreq.QuadPart);
+    lastEvalQpc = now;
+
+    if (elapsedMs < static_cast<double>(kMinFrameTimeMs)) {
+        return kMinFrameTimeMs;
+    }
+    if (elapsedMs > static_cast<double>(kMaxFrameTimeMs)) {
+        return kMaxFrameTimeMs;
+    }
+    return static_cast<float>(elapsedMs);
+}
+
+FSR4Backend::FSR4Backend() {
+    m_impl = new Impl();
+    QueryPerformanceFrequency(&m_impl->qpcFreq);
+}
 
 FSR4Backend::~FSR4Backend() {
     if (m_impl) {
@@ -787,6 +822,7 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
         }
 
         m_impl->graphicsAPI = graphicsAPI;
+        QueryPerformanceFrequency(&m_impl->qpcFreq);
         readBackendIni();
 
         ID3D12CommandQueue* queue = (ID3D12CommandQueue*)deviceOrQueue;
@@ -1564,7 +1600,7 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             if (s > 0.0f) s /= 5.0f;
             dd.sharpness = s;
         }
-        dd.frameTimeDelta          = 16.6f;
+        dd.frameTimeDelta          = computeFrameTimeDeltaMs(ctx.lastEvalQpc, m_impl->qpcFreq);
         dd.preExposure             = 1.0f;
         dd.reset                   = reset;
         dd.cameraNear              = nearPlane;
