@@ -24,6 +24,11 @@ public:
     using LogDelegateFn = void (*)(char* message, int iSize);
 
     static bool init();
+    // Registers a host log delegate (nullptr detaches). Logging::vlog() releases
+    // s_lock before invoking the delegate, but callers inside FSR4Backend may log
+    // while holding internal non-recursive locks; therefore the delegate must be a
+    // lightweight, non-blocking log sink that does not re-enter PDPerfPlugin
+    // backend APIs.
     static void setDelegate(LogDelegateFn fn);
     static void info(const char* fmt, ...);
     static void warn(const char* fmt, ...);

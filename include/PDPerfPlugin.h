@@ -83,6 +83,11 @@ extern "C" __declspec(dllexport) int __stdcall GetJitterPhaseCount(int id);
 
 extern "C" __declspec(dllexport) int __stdcall GetJitterOffset(float* outX, float* outY, int index, int phaseCount);
 
+// Registers a host log sink for high-level status/error messages (pass nullptr to detach).
+// The callback must be a lightweight, non-blocking log sink and must NOT re-enter
+// PDPerfPlugin backend APIs (e.g. SetupDirectX, InitUpscaler, EvaluateUpscaler,
+// GetRenderWidth, ReleaseUpscaleFeature): backend logging may be invoked while
+// internal non-recursive backend locks are held.
 extern "C" __declspec(dllexport) void __stdcall InitLogDelegate(void (*Log)(char* message, int iSize));
 
 extern "C" __declspec(dllexport) bool __stdcall IsUpscaleMethodAvailable(int upscaleMethod);
