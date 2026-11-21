@@ -28,7 +28,6 @@ add_library(${PROJECT_NAME} SHARED
     src/dllmain.cpp
     src/PDPerfPlugin.cpp
     src/FSR4Backend.cpp
-    src/RbSwapPass.cpp
     src/Logging.cpp
 )
 

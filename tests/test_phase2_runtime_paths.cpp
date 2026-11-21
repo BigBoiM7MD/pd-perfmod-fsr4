@@ -238,7 +238,7 @@ static bool runEvaluationAndVrMultipassCase(const std::wstring& srcPluginDll,
     const std::wstring iniPath   = dir + L"\\pd-perfmod-fsr4.ini";
     TEST_CHECK_BOOL(CopyFileW(srcPluginDll.c_str(), dstPlugin.c_str(), FALSE) != FALSE);
     TEST_CHECK_BOOL(CopyFileW(srcMockLoaderDll.c_str(), dstLoader.c_str(), FALSE) != FALSE);
-    TEST_CHECK_BOOL(writeBytesW(iniPath, "[Logging]\nVerbose=0\n[Backend]\nRBSwap=0\n"));
+    TEST_CHECK_BOOL(writeBytesW(iniPath, "[Logging]\nVerbose=0\n"));
 
     clearMockEnvVars();
     SetEnvironmentVariableA("PD_MOCK_FFX_VERSIONS", "1");
@@ -457,7 +457,7 @@ static bool runDlaaAndMultiVersionFallbackCase(const std::wstring& srcPluginDll,
     const std::wstring iniPath   = dir + L"\\pd-perfmod-fsr4.ini";
     TEST_CHECK_BOOL(CopyFileW(srcPluginDll.c_str(), dstPlugin.c_str(), FALSE) != FALSE);
     TEST_CHECK_BOOL(CopyFileW(srcMockLoaderDll.c_str(), dstLoader.c_str(), FALSE) != FALSE);
-    TEST_CHECK_BOOL(writeBytesW(iniPath, "[Logging]\nVerbose=0\n[Backend]\nRBSwap=0\n"));
+    TEST_CHECK_BOOL(writeBytesW(iniPath, "[Logging]\nVerbose=0\n"));
 
     clearMockEnvVars();
     SetEnvironmentVariableA("PD_MOCK_FFX_VERSIONS", "2");
@@ -574,44 +574,14 @@ static bool runDlaaAndMultiVersionFallbackCase(const std::wstring& srcPluginDll,
     return true;
 }
 
-static bool verifyRbSwapBarriers(const std::vector<D3D12_RESOURCE_BARRIER>& barriers,
-                                 ID3D12Resource* outputTex,
-                                 ID3D12Resource* swapTex) {
-    bool sawPreSrvTransition = false;
-    bool sawPostUavTransition = false;
-    bool sawSwapUavBarrier = false;
-
-    for (const auto& b : barriers) {
-        if (b.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION &&
-            b.Transition.pResource == outputTex) {
-            if (b.Transition.StateBefore == D3D12_RESOURCE_STATE_UNORDERED_ACCESS &&
-                b.Transition.StateAfter == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) {
-                sawPreSrvTransition = true;
-            }
-            if (b.Transition.StateBefore == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE &&
-                b.Transition.StateAfter == D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
-                sawPostUavTransition = true;
-            }
-        } else if (b.Type == D3D12_RESOURCE_BARRIER_TYPE_UAV &&
-                   b.UAV.pResource == swapTex) {
-            sawSwapUavBarrier = true;
-        }
-    }
-
-    return sawPreSrvTransition && sawPostUavTransition && sawSwapUavBarrier;
-}
-
-static bool runRbSwapSubcase(const std::wstring& srcPluginDll,
-                             const std::wstring& srcMockLoaderDll,
-                             const std::wstring& tempRoot,
-                             const wchar_t* tag,
-                             const std::string& iniContent,
-                             int initFormat,
-                             bool isHdr,
-                             bool expectSwap,
-                             DXGI_FORMAT expectedOutFmt,
-                             DXGI_FORMAT expectedSrvFmt,
-                             DXGI_FORMAT expectedUavFmt) {
+static bool runOutputFormatSubcase(const std::wstring& srcPluginDll,
+                                   const std::wstring& srcMockLoaderDll,
+                                   const std::wstring& tempRoot,
+                                   const wchar_t* tag,
+                                   const std::string& iniContent,
+                                   int initFormat,
+                                   bool isHdr,
+                                   DXGI_FORMAT expectedOutFmt) {
     const std::wstring dir = tempRoot + L"\\" + tag;
     deleteTreeW(dir);
     TEST_CHECK_BOOL(CreateDirectoryW(dir.c_str(), nullptr) != FALSE);
@@ -650,44 +620,28 @@ static bool runRbSwapSubcase(const std::wstring& srcPluginDll,
     TEST_CHECK_BOOL(returnedTex != nullptr);
     auto* returnedRes = static_cast<ID3D12Resource*>(returnedTex);
 
-    if (expectSwap) {
-        TEST_CHECK_BOOL(MockD3D12Device::liveDescriptorHeaps.load() == 1);
-        TEST_CHECK_BOOL(MockD3D12Device::liveRootSignatures.load() == 1);
-        TEST_CHECK_BOOL(MockD3D12Device::livePipelineStates.load() == 1);
-        TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 2);
+    // Direct output without any R/B swap staging resources or compute pipeline.
+    TEST_CHECK_BOOL(MockD3D12Device::liveDescriptorHeaps.load() == 0);
+    TEST_CHECK_BOOL(MockD3D12Device::liveRootSignatures.load() == 0);
+    TEST_CHECK_BOOL(MockD3D12Device::livePipelineStates.load() == 0);
+    TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 1);
+    TEST_CHECK_BOOL(returnedRes->GetDesc().Format == expectedOutFmt);
 
-        TEST_CHECK_BOOL(dev->srvCreateCount == 1 && dev->uavCreateCount == 1);
-        TEST_CHECK_BOOL(dev->lastSrvResource != nullptr && dev->lastSrvResource != returnedRes);
-        TEST_CHECK_BOOL(dev->lastUavResource == returnedRes);
-        TEST_CHECK_BOOL(dev->lastSrvResource->GetDesc().Format == expectedOutFmt);
-        TEST_CHECK_BOOL(returnedRes->GetDesc().Format == expectedUavFmt);
-        TEST_CHECK_BOOL(dev->lastSrvDesc.Format == expectedSrvFmt);
-        TEST_CHECK_BOOL(dev->lastUavDesc.Format == expectedUavFmt);
+    auto* colorRes = makeTex2D(dev, 1280, 720, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+    auto* depthRes = makeTex2D(dev, 1280, 720, DXGI_FORMAT_D32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+    auto* mvRes    = makeTex2D(dev, 1280, 720, DXGI_FORMAT_R16G16_FLOAT, D3D12_RESOURCE_FLAG_NONE);
 
-        auto* colorRes = makeTex2D(dev, 1280, 720, DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
-        auto* depthRes = makeTex2D(dev, 1280, 720, DXGI_FORMAT_D32_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
-        auto* mvRes    = makeTex2D(dev, 1280, 720, DXGI_FORMAT_R16G16_FLOAT, D3D12_RESOURCE_FLAG_NONE);
+    UpscaleParams ep = makeEvalParams(1, colorRes, mvRes, depthRes, nullptr, 1280.0f, 720.0f, true, nullptr);
+    api.EvaluateUpscaler(&ep);
 
-        UpscaleParams ep = makeEvalParams(1, colorRes, mvRes, depthRes, nullptr, 1280.0f, 720.0f, true, nullptr);
-        api.EvaluateUpscaler(&ep);
+    TEST_CHECK_BOOL(cmdList->dispatchCount == 0);
+    MockFfxDispatchDescUpscale dd{};
+    TEST_CHECK_BOOL(MockFfxInspector::getDispatchRecord(0, dd));
+    TEST_CHECK_BOOL(dd.output.resource == returnedRes);
 
-        TEST_CHECK_BOOL(cmdList->dispatchCount == 1);
-        TEST_CHECK_BOOL(verifyRbSwapBarriers(cmdList->recordedBarriers, dev->lastSrvResource, returnedRes));
-
-        MockFfxDispatchDescUpscale dd{};
-        TEST_CHECK_BOOL(MockFfxInspector::getDispatchRecord(0, dd));
-        TEST_CHECK_BOOL(dd.output.resource == dev->lastSrvResource);
-
-        colorRes->Release();
-        depthRes->Release();
-        mvRes->Release();
-    } else {
-        TEST_CHECK_BOOL(MockD3D12Device::liveDescriptorHeaps.load() == 0);
-        TEST_CHECK_BOOL(MockD3D12Device::liveRootSignatures.load() == 0);
-        TEST_CHECK_BOOL(MockD3D12Device::livePipelineStates.load() == 0);
-        TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 1);
-        TEST_CHECK_BOOL(returnedRes->GetDesc().Format == expectedOutFmt);
-    }
+    colorRes->Release();
+    depthRes->Release();
+    mvRes->Release();
 
     api.ReleaseUpscaleFeature(1);
     TEST_CHECK_BOOL(MockD3D12Device::liveResources.load() == 0);
@@ -715,50 +669,43 @@ static bool runRbSwapSubcase(const std::wstring& srcPluginDll,
     return true;
 }
 
-static bool runRbSwapCases(const std::wstring& srcPluginDll,
-                           const std::wstring& srcMockLoaderDll,
-                           const std::wstring& tempRoot) {
-    printf("[Case 3] Testing FIX-11 Wine R/B swap formats, [Backend] RBSwap INI toggle, & barriers...\n");
+static bool runOutputFormatCases(const std::wstring& srcPluginDll,
+                                 const std::wstring& srcMockLoaderDll,
+                                 const std::wstring& tempRoot) {
+    printf("[Case 3] Testing Wine SDR R8G8B8A8_UNORM direct output, HDR preservation, & OutputFormat override...\n");
 
-    // Note: RBSwap=-1 auto-enable relies on isRunningUnderWine() (ntdll!wine_get_version),
-    // which returns true under Wine CTest (and false on native Windows).
     TEST_CHECK_BOOL(GetModuleHandleA("ntdll.dll") != nullptr &&
                     GetProcAddress(GetModuleHandleA("ntdll.dll"), "wine_get_version") != nullptr);
 
-    // Test 3a: RBSwap=-1 auto, SDR format=28 (R8G8B8A8_UNORM)
-    TEST_CHECK_BOOL(runRbSwapSubcase(
-        srcPluginDll, srcMockLoaderDll, tempRoot, L"case3a_auto_sdr",
-        "[Logging]\nVerbose=0\n[Backend]\nRBSwap=-1\n",
-        DXGI_FORMAT_R8G8B8A8_UNORM, false, true,
-        DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM));
+    // Test 3a: Wine SDR backbuffer (BGRA 87) -> auto-selects R8G8B8A8_UNORM (28), zero compute swap
+    TEST_CHECK_BOOL(runOutputFormatSubcase(
+        srcPluginDll, srcMockLoaderDll, tempRoot, L"case3a_wine_sdr_bgra_in",
+        "[Logging]\nVerbose=0\n",
+        DXGI_FORMAT_B8G8R8A8_UNORM, false, DXGI_FORMAT_R8G8B8A8_UNORM));
 
-    // Test 3b: OutputFormat=87 (B8G8R8A8_UNORM) + RBSwap=1 forced (independent of Wine detection)
-    TEST_CHECK_BOOL(runRbSwapSubcase(
-        srcPluginDll, srcMockLoaderDll, tempRoot, L"case3b_bgra_forced",
-        "[Logging]\nVerbose=0\n[Backend]\nOutputFormat=87\nRBSwap=1\n",
-        DXGI_FORMAT_R8G8B8A8_UNORM, false, true,
-        DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM));
+    // Test 3b: Wine SDR backbuffer (RGBA 28) -> R8G8B8A8_UNORM (28), zero compute swap
+    TEST_CHECK_BOOL(runOutputFormatSubcase(
+        srcPluginDll, srcMockLoaderDll, tempRoot, L"case3b_wine_sdr_rgba_in",
+        "[Logging]\nVerbose=0\n",
+        DXGI_FORMAT_R8G8B8A8_UNORM, false, DXGI_FORMAT_R8G8B8A8_UNORM));
 
-    // Test 3c: RBSwap=0 A/B disable, SDR format=28
-    TEST_CHECK_BOOL(runRbSwapSubcase(
-        srcPluginDll, srcMockLoaderDll, tempRoot, L"case3c_off_sdr",
-        "[Logging]\nVerbose=0\n[Backend]\nRBSwap=0\n",
-        DXGI_FORMAT_R8G8B8A8_UNORM, false, false,
-        DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_UNKNOWN));
+    // Test 3c: Wine HDR float16 (10) -> preserves R16G16B16A16_FLOAT directly
+    TEST_CHECK_BOOL(runOutputFormatSubcase(
+        srcPluginDll, srcMockLoaderDll, tempRoot, L"case3c_wine_hdr_f16",
+        "[Logging]\nVerbose=0\n",
+        DXGI_FORMAT_R16G16B16A16_FLOAT, true, DXGI_FORMAT_R16G16B16A16_FLOAT));
 
-    // Test 3d: RBSwap=-1 auto, HDR format=10 (R16G16B16A16_FLOAT) -> swap skipped
-    TEST_CHECK_BOOL(runRbSwapSubcase(
-        srcPluginDll, srcMockLoaderDll, tempRoot, L"case3d_auto_hdr",
-        "[Logging]\nVerbose=0\n[Backend]\nRBSwap=-1\n",
-        DXGI_FORMAT_R16G16B16A16_FLOAT, true, false,
-        DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_UNKNOWN));
+    // Test 3d: Wine HDR 10-bit (24) -> preserves R10G10B10A2_UNORM directly
+    TEST_CHECK_BOOL(runOutputFormatSubcase(
+        srcPluginDll, srcMockLoaderDll, tempRoot, L"case3d_wine_hdr_10bit",
+        "[Logging]\nVerbose=0\n",
+        DXGI_FORMAT_R10G10B10A2_UNORM, true, DXGI_FORMAT_R10G10B10A2_UNORM));
 
-    // Test 3e: RBSwap=1 force on, HDR format=10 -> swap enabled with matched R16G16B16A16_FLOAT SRV & UAV
-    TEST_CHECK_BOOL(runRbSwapSubcase(
-        srcPluginDll, srcMockLoaderDll, tempRoot, L"case3e_forced_hdr",
-        "[Logging]\nVerbose=0\n[Backend]\nRBSwap=1\n",
-        DXGI_FORMAT_R16G16B16A16_FLOAT, true, true,
-        DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT));
+    // Test 3e: Explicit [Backend] OutputFormat=87 override -> B8G8R8A8_UNORM directly
+    TEST_CHECK_BOOL(runOutputFormatSubcase(
+        srcPluginDll, srcMockLoaderDll, tempRoot, L"case3e_override_bgra",
+        "[Logging]\nVerbose=0\n[Backend]\nOutputFormat=87\n",
+        DXGI_FORMAT_R8G8B8A8_UNORM, false, DXGI_FORMAT_B8G8R8A8_UNORM));
 
     printf("[Case 3] PASSED (Test 3a..3e all verified).\n");
     return true;
@@ -782,7 +729,7 @@ int wmain(int argc, wchar_t** argv) {
 
     const bool ok1 = runEvaluationAndVrMultipassCase(pluginDll, mockLoaderDll, tempRoot);
     const bool ok2 = ok1 && runDlaaAndMultiVersionFallbackCase(pluginDll, mockLoaderDll, tempRoot);
-    const bool ok3 = ok2 && runRbSwapCases(pluginDll, mockLoaderDll, tempRoot);
+    const bool ok3 = ok2 && runOutputFormatCases(pluginDll, mockLoaderDll, tempRoot);
 
     deleteTreeW(tempRoot);
     TEST_CHECK(ok1 && ok2 && ok3);

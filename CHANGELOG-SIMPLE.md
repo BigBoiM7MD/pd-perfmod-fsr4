@@ -22,16 +22,16 @@ and handles long/Unicode game install folders cleanly.
 - Added real per-frame delta timing (`QueryPerformanceCounter`) instead of a
   hardcoded `16.6 ms` value.
 
-## 3. Better VR, DLAA, multi-version fallback & Linux R/B swap control
+## 3. Better VR, DLAA, multi-version fallback & faster Linux/Proton output
 - **VR multipass:** left-eye passes (`execute = false`) now record properly and
   submit together with the right eye instead of being skipped.
 - **Native Res / DLAA:** supported cleanly via dynamic resolution.
 - **Automatic version fallback:** if the newest detected FSR version fails to
   initialize on your driver, the plugin automatically tries older available FSR
   versions before giving up.
-- **Linux / Proton:** SDR uses valid matched `R8G8B8A8` formats with R/B swap,
-  and you can now toggle `[Backend] RBSwap` (`-1` auto / `0` off / `1` force on)
-  in `pd-perfmod-fsr4.ini`.
+- **Linux / Proton:** now that texture format mapping is fixed, SDR outputs
+  proper colors natively in `R8G8B8A8` with the extra R/B swap compute shader
+  pass removed completely (saving VRAM and GPU work every frame).
 
 ## 4. Cleaner logs inside REFramework
 - Important startup lines and errors now appear directly in REFramework's log

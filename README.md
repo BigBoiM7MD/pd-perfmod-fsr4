@@ -90,19 +90,13 @@ Verbose=0      ; 0 = NON-VERBOSE default (version + GPU + errors only)
 
 [Backend]
 ; OutputFormat: override the output texture format. ADVANCED — leave at 0.
-; 0  = auto (recommended): Linux SDR defaults to R8G8B8A8_UNORM (28) + R/B swap pass;
+; 0  = auto (recommended): Linux SDR defaults to R8G8B8A8_UNORM (28);
 ;      HDR preserves 24/10; Windows uses the native backbuffer format.
-; 28 = R8G8B8A8 (RGBA)     — SDR. Used on Linux/Proton with the R/B swap pass enabled.
+; 28 = R8G8B8A8 (RGBA)     — SDR. Default on Linux/Proton (native color order).
 ; 87 = B8G8R8A8 (BGRA)     — SDR. Explicit BGRA output format override.
 ; 24 = R10G10B10A2         — HDR (10-bit). Preserved automatically in HDR.
 ; 10 = R16G16B16A16_FLOAT  — HDR (float16). Preserved automatically in HDR.
 OutputFormat=0
-
-; RBSwap: red/blue channel swap compute pass for Linux/Proton SDR backbuffers.
-; -1 = auto (default: enabled on Linux/Proton SDR, disabled on HDR and Windows)
-;  0 = off  (disable R/B swap for A/B testing)
-;  1 = on   (force R/B swap on)
-RBSwap=-1
 ```
 
 **Sharpness** is controlled from REFramework's upscaler UI, *not* the INI:
@@ -120,10 +114,9 @@ Change any setting and restart the game to apply.
 FSR4 (via the AMD loader) **runs on newer Proton / Proton-GE with vkd3d-proton** — it is
 not Windows-only.
 
-- **Colors are correct out of the box.** Under Proton the game's present
-  backbuffer is BGRA, so for SDR the plugin outputs `R8G8B8A8_UNORM` (`28`) from
-  FSR and runs a tiny red↔blue swap compute pass (configurable via `[Backend] RBSwap`)
-  before returning the texture to REFramework. No setup needed.
+- **Colors are correct out of the box.** For SDR under Proton the plugin outputs
+  `R8G8B8A8_UNORM` (`28`) directly from FSR with proper FidelityFX surface
+  format mapping — no extra red↔blue swap shader pass needed.
 - **HDR is preserved.** When the game runs in HDR, the plugin keeps the HDR
   pixel format (10-bit `24` or float16 `10`) end-to-end, so HDR colors pass
   through untouched.
@@ -170,14 +163,13 @@ Get-Content "path\to\pd-perfmod-fsr4.log" -Wait -Tail 20
   are missing, the upscaler fails to initialize and you'll see a black screen —
   the log tells you exactly which file to drop next to the game `.exe`.
 - The plugin builds as a SHARED library named `PDPerfPlugin` (no `lib` prefix)
-  using the static MSVC runtime (`/MT`), resolves `d3d12.dll` and `dxgi.dll`
-  dynamically at runtime (sole static import: `KERNEL32.dll`), enables `/EHa` so
-  both C++ and SEH exceptions are caught, and forwards key status/error log lines
-  to REFramework via `InitLogDelegate`.
+  using the static MSVC runtime (`/MT`), resolves `dxgi.dll` dynamically at
+  runtime (sole static import: `KERNEL32.dll`), enables `/EHa` so both C++ and
+  SEH exceptions are caught, and forwards key status/error log lines to
+  REFramework via `InitLogDelegate`.
 - **Windows:** uses the native backbuffer format, untouched.
-- **Linux/Proton:** uses `R8G8B8A8_UNORM` (`28`) + the R/B swap compute pass for
-  SDR (`RBSwap=-1` auto), or keeps the HDR container (`24`/`10`) for HDR; both
-  paths are fail-safe.
+- **Linux/Proton:** uses `R8G8B8A8_UNORM` (`28`) directly for SDR, or keeps the
+  HDR container (`24`/`10`) for HDR; both paths are fail-safe.
 
 ## Building from source
 

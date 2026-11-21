@@ -13,7 +13,7 @@ hardening release.
 ### Fixed
 - **Intermittent launch hangs/crashes with REFramework:**
   - Stripped all `<iostream>` / `std::cout` / path I/O from `DllMain` (now strictly `DisableThreadLibraryCalls`), eliminating OS loader-lock deadlocks at startup.
-  - Switched `PDPerfPlugin.dll` to static CRT (`/MT` + `/EHa`) and dynamically resolved `D3D12SerializeRootSignature` and `CreateDXGIFactory1` so `PDPerfPlugin.dll` has only `KERNEL32.dll` as a static import (no `VCRUNTIME140` / `MSVCP140` / `d3d12` / `dxgi` load-time failures).
+  - Switched `PDPerfPlugin.dll` to static CRT (`/MT` + `/EHa`) and dynamically resolved `CreateDXGIFactory1` so `PDPerfPlugin.dll` has only `KERNEL32.dll` as a static import (no `VCRUNTIME140` / `MSVCP140` / `d3d12` / `dxgi` load-time failures).
   - Replaced unsynchronized one-time init in `initialize()` and `Logging::init()` with `InitOnceExecuteOnce`, deferring startup banner logging until after `InitOnceExecuteOnce` finishes.
   - Replaced `MAX_PATH` ANSI path buffers with shared wide-char (`std::wstring`) helpers supporting non-ASCII and extended-length (`\\?\`) paths for INI, log, and `amd_fidelityfx_loader_dx12.dll` lookup (probing next to the DLL first).
 - **Safe fallback & COM ownership:**
@@ -28,14 +28,14 @@ hardening release.
   - Wrapped `EvaluateUpscaler` and `SimpleEvaluate` under `/EHa` `try/catch`, isolated external `cmdList`s, and recorded dispatches when `execute == false` (submitting once when `execute == true`) for VR dual-eye multipass.
   - Enabled `FFX_UPSCALE_ENABLE_DYNAMIC_RESOLUTION` with `maxRenderSize = displaySize`, `qualityLevel == 3` (DLAA / native res), and dynamic `renderSizeX`/`renderSizeY` clamping.
   - Added sequential fallback across all enumerated FSR versions in `createContext()` if the newest version fails to initialize.
-  - Fixed Linux/Proton R/B swap to default SDR to `R8G8B8A8_UNORM` (`28`) with matching D3D12 SRV/UAV formats, `UNORDERED_ACCESS` / `UAV` barriers, per-context `rbSwapEnabled` tracking, and a `[Backend] RBSwap` (`-1` auto / `0` off / `1` force on) INI toggle.
+  - With `FfxApiSurfaceFormat` fixed, Linux/Proton SDR outputs `R8G8B8A8_UNORM` (`28`) directly with correct colors — removing the redundant R/B swap compute pass, staging texture, descriptor heap, and compiled HLSL bytecode entirely.
 - **Host logging, frame timing & defaults:**
   - Wired `InitLogDelegate` to forward `Logging::always` and `Logging::error` messages to REFramework outside `Logging::s_lock` under SEH/C++ guards.
   - Replaced hardcoded `16.6f` `frameTimeDelta` with real per-context clamped (`[0.1, 250.0]` ms) `QueryPerformanceCounter` elapsed milliseconds.
   - Aligned `Logging.cpp` and `README.md` on the `Verbose=0` (`NON-VERBOSE`) default.
 
 ### Changed
-- Extracted the Linux/Proton R/B swap compute pipeline into standalone `include/RbSwapPass.h` and `src/RbSwapPass.cpp`, and removed dead code (`logCallback`, `ffxGetResourceFn`, `<map>`, `s_jitterLogged`, `FSR4_DIAGNOSTICS`).
+- Removed the obsolete R/B swap compute shader pass (`rb_swap.hlsl` / `rb_swap_cs.h`) and dead code (`logCallback`, `ffxGetResourceFn`, `<map>`, `s_jitterLogged`, `FSR4_DIAGNOSTICS`).
 - Raised minimum CMake version to `3.15` (`CMP0091` static `/MT` enforcement) and added a 5-suite PE64 Wine CTest harness (`phase1_startup`, `phase1_fallback_com`, `phase2_abi_lifecycle`, `phase2_runtime_paths`, `phase3_logging_timing`).
 
 ---

@@ -398,7 +398,7 @@ static bool runLogDelegateCase(const std::wstring& srcPluginDll,
     const std::wstring logPath   = dir + L"\\pd-perfmod-fsr4.log";
     TEST_CHECK_BOOL(CopyFileW(srcPluginDll.c_str(), dstPlugin.c_str(), FALSE) != FALSE);
     TEST_CHECK_BOOL(CopyFileW(srcMockLoaderDll.c_str(), dstLoader.c_str(), FALSE) != FALSE);
-    TEST_CHECK_BOOL(writeBytesW(iniPath, "[Logging]\nVerbose=1\n[Backend]\nRBSwap=0\n"));
+    TEST_CHECK_BOOL(writeBytesW(iniPath, "[Logging]\nVerbose=1\n"));
 
     clearMockEnvVars();
     SetEnvironmentVariableA("PD_MOCK_FFX_VERSIONS", "1");
@@ -561,7 +561,7 @@ static bool runQpcFrameTimeDeltaCase(const std::wstring& srcPluginDll,
     const std::wstring iniPath   = dir + L"\\pd-perfmod-fsr4.ini";
     TEST_CHECK_BOOL(CopyFileW(srcPluginDll.c_str(), dstPlugin.c_str(), FALSE) != FALSE);
     TEST_CHECK_BOOL(CopyFileW(srcMockLoaderDll.c_str(), dstLoader.c_str(), FALSE) != FALSE);
-    TEST_CHECK_BOOL(writeBytesW(iniPath, "[Logging]\nVerbose=0\n[Backend]\nRBSwap=0\n"));
+    TEST_CHECK_BOOL(writeBytesW(iniPath, "[Logging]\nVerbose=0\n"));
 
     clearMockEnvVars();
     SetEnvironmentVariableA("PD_MOCK_FFX_VERSIONS", "1");
