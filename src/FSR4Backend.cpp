@@ -13,7 +13,6 @@
 #include <cstring>
 #include <cwchar>
 #include <exception>
-#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -345,7 +344,6 @@ using PFN_ffxCreateContext  = ffxReturnCode_t (__cdecl*)(ffxContext*, ffxCreateC
 using PFN_ffxDestroyContext = ffxReturnCode_t (__cdecl*)(ffxContext*, const ffxAllocationCallbacks*);
 using PFN_ffxDispatch       = ffxReturnCode_t (__cdecl*)(ffxContext*, const ffxDispatchDescHeader*);
 using PFN_ffxQuery          = ffxReturnCode_t (__cdecl*)(ffxContext*, ffxQueryDescHeader*);
-using PFN_ffxApiGetResourceDX12 = FfxApiResource(__cdecl*)(void*, uint32_t);
 
 // Verify struct sizes and member offsets match SDK expectations (MSVC x64)
 static_assert(sizeof(ffxApiHeader) == 16, "ffxApiHeader size");
@@ -437,7 +435,6 @@ struct FSR4Backend::Impl {
     PFN_ffxDestroyContext ffxDestroyContextFn = nullptr;
     PFN_ffxDispatch       ffxDispatchFn       = nullptr;
     PFN_ffxQuery          ffxQueryFn          = nullptr;
-    PFN_ffxApiGetResourceDX12 ffxGetResourceFn = nullptr;
 
     ID3D12Device*        device       = nullptr;
     ID3D12CommandQueue*   commandQueue = nullptr;
@@ -596,7 +593,6 @@ struct FSR4Backend::Impl {
         impl->ffxDestroyContextFn  = nullptr;
         impl->ffxDispatchFn        = nullptr;
         impl->ffxQueryFn           = nullptr;
-        impl->ffxGetResourceFn     = nullptr;
         impl->chosenVersionId      = 0;
         impl->chosenVersionName[0] = '\0';
         impl->candidateVersions.clear();
@@ -1130,7 +1126,6 @@ bool FSR4Backend::setup(void* deviceOrQueue, int graphicsAPI) {
         m_impl->ffxDestroyContextFn = (PFN_ffxDestroyContext)GetProcAddress(m_impl->hLoaderDll, "ffxDestroyContext");
         m_impl->ffxDispatchFn       = (PFN_ffxDispatch)GetProcAddress(m_impl->hLoaderDll, "ffxDispatch");
         m_impl->ffxQueryFn          = (PFN_ffxQuery)GetProcAddress(m_impl->hLoaderDll, "ffxQuery");
-        m_impl->ffxGetResourceFn    = (PFN_ffxApiGetResourceDX12)GetProcAddress(m_impl->hLoaderDll, "ffxApiGetResourceDX12");
 
         if (!m_impl->ffxCreateContextFn || !m_impl->ffxDestroyContextFn || !m_impl->ffxDispatchFn) {
             Logging::warn("FSR4Backend: Missing required ffxApi entry points");
@@ -1727,32 +1722,6 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
     if (!m_impl) return;
     SrwExclusiveGuard lockGuard(&m_impl->lock);
     try {
-        // --- Diagnostics (debug builds only) ------------------------------------
-        // Gated behind FSR4_DIAGNOSTICS. Define it for a debugging release to get the
-        // per-second CALLED counter, the one-time cmdList PROBE, and the true
-        // in-function CPU timer. Off in normal builds so Release stays clean.
-#ifndef FSR4_DIAGNOSTICS
-        (void)cmdList; (void)destination; (void)color; (void)motionVector; (void)depth; (void)execute;
-#else
-        // Diagnostic: log entry (rate-limited to ~1/sec) so we can see whether
-        // REFramework is invoking evaluate() at all, and why it might bail.
-        {
-            static long long s_last = 0; static int s_count = 0;
-            long long now = (long long)GetTickCount64();
-            if (now - s_last > 1000) {
-                Logging::info("FSR4Backend::evaluate(id=%d) CALLED %d times in last sec | color=%p mv=%p depth=%p dst=%p exec=%d",
-                              id, s_count, color, motionVector, depth, destination, (int)execute);
-                s_last = now; s_count = 0;
-            }
-            s_count++;
-        }
-
-        // True per-call CPU timing: stamp entry here, measure elapsed at function
-        // exit. (The old timer measured the gap BETWEEN calls = 1/fps, not CPU cost,
-        // so it always read ~4.4ms at 227fps and was useless for finding hot spots.)
-        long long s_entryT = (long long)GetTickCount64();
-#endif
-
         auto it = m_impl->contexts.find(id);
         if (it == m_impl->contexts.end() || !it->second.ffxCtx || !m_impl->ffxDispatchFn) {
             if (!cmdList) {
@@ -1818,27 +1787,6 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
             }
             effectiveCmdList = m_impl->cmdList;
         }
-
-        // One-time diagnostic (FSR4_DIAGNOSTICS only): how does REFramework hand us
-        // the command list? If nullptr we spin up our OWN ID3D12GraphicsCommandList
-        // and execute+Signal it every frame (see L862). This is parity with every
-        // upscaler (REFramework passes a null list to all of them via UpscaleParams),
-        // so it is NOT a gap source — but the probe is useful for debugging Release.
-#ifndef FSR4_DIAGNOSTICS
-        (void)cmdList;
-#else
-        {
-            static bool s_logged = false;
-            if (!s_logged) {
-                s_logged = true;
-                Logging::info("FSR4Backend: PROBE cmdList=%s effectiveDst=%s -> %s submit path",
-                              cmdList ? "provided" : "NULL",
-                              destination ? "provided" : "internal-output",
-                              cmdList ? "record-into-REFramework-list (no extra submit)"
-                                      : "OWN internal command list (ExecuteCommandLists+Signal per frame)");
-            }
-        }
-#endif
 
         ffxDispatchDescUpscale dd = {};
         dd.header.type  = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
@@ -1997,26 +1945,6 @@ void FSR4Backend::evaluate(int id, void* color, void* motionVector, void* depth,
                 }
             }
         }
-
-        // --- True per-call CPU timing (FSR4_DIAGNOSTICS only; scoped entry->here) --
-        // Measures THIS function's CPU work per frame. Off in normal builds.
-#ifndef FSR4_DIAGNOSTICS
-        (void)0;
-#else
-        {
-            static long long s_lastLog = 0;
-            static double s_msSum = 0; static long long s_n = 0;
-            long long t1 = (long long)GetTickCount64();
-            s_msSum += (double)(t1 - s_entryT); s_n++;
-            if (t1 - s_lastLog > 2000) {
-                s_lastLog = t1;
-                double avg = s_n ? (s_msSum / (double)s_n) : 0.0;
-                Logging::info("FSR4Backend: evaluate() CPU avg=%.4f ms over %lld calls (true in-function cost)",
-                              avg, (long long)s_n);
-                s_msSum = 0; s_n = 0;
-            }
-        }
-#endif
     } catch (const std::exception& e) {
         Logging::error("FSR4Backend: ffxDispatch exception: %s", e.what());
         if (!cmdList) {
@@ -2138,21 +2066,9 @@ int FSR4Backend::getJitterOffset(int id, float* outX, float* outY, int index, in
             }
             return -1;
         }
-        if (outX && outY) logJitterOnce(*outX, *outY, index, phaseCount);
         return 0;
     }
     return -1;
-}
-
-// One-time diagnostic: prove the FFX jitter query actually returns non-zero
-// sub-pixel offsets (and that the id-0 fallback resolved a real context).
-namespace { std::atomic<bool> s_jitterLogged{false}; }
-void FSR4Backend::logJitterOnce(float x, float y, int index, int phaseCount) const {
-    if (s_jitterLogged.load(std::memory_order_relaxed)) return;
-    if (s_jitterLogged.exchange(true, std::memory_order_acq_rel)) return;
-    Logging::info("FSR4Backend: JITTER_QUERY idx=%d phase=%d -> offset=(%.5f,%.5f) %s",
-                  index, phaseCount, x, y,
-                  (x != 0.0f || y != 0.0f) ? "(NON-ZERO: jitter active)" : "(ZERO: FSR4 jitter seq returned 0!)");
 }
 
 bool FSR4Backend::isMethodAvailable(int upscaleMethod) const {
